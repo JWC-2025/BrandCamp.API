@@ -7,7 +7,19 @@ export interface AIAnalysisResult {
 export declare abstract class AIService {
     protected abstract makeAIRequest(prompt: string): Promise<string>;
     analyzeWebsite(websiteData: WebsiteData, analysisType: string, prompt: string): Promise<AIAnalysisResult>;
-    protected buildPrompt(websiteData: WebsiteData, specificPrompt: string): string;
+    private performPreliminaryAnalysis;
+    protected buildEnhancedPrompt(websiteData: WebsiteData, analysisType: string, specificPrompt: string, context: {
+        industry: string;
+        businessType: string;
+        targetAudience: string;
+        primaryGoal: string;
+    }): string;
+    protected buildPrompt(websiteData: WebsiteData, specificPrompt: string, context?: {
+        industry: string;
+        businessType: string;
+        targetAudience: string;
+        primaryGoal: string;
+    }, industryPrompt?: string): string;
     protected parseAIResponse(response: string): AIAnalysisResult;
     protected getFallbackResult(analysisType: string): AIAnalysisResult;
 }

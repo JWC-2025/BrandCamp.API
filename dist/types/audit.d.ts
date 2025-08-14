@@ -1,6 +1,7 @@
 export interface AuditRequest {
     url: string;
     includeScreenshot?: boolean;
+    format?: string;
     customCriteria?: string[];
 }
 export interface AuditResult {
@@ -12,21 +13,18 @@ export interface AuditResult {
         valueProposition: number;
         featuresAndBenefits: number;
         ctaAnalysis: number;
-        seoReadiness: number;
         trustSignals: number;
     };
     insights: {
         valueProposition: string[];
         featuresAndBenefits: string[];
         ctaAnalysis: string[];
-        seoReadiness: string[];
         trustSignals: string[];
     };
     recommendations: {
         valueProposition: string[];
         featuresAndBenefits: string[];
         ctaAnalysis: string[];
-        seoReadiness: string[];
         trustSignals: string[];
     };
     screenshot?: string | undefined;

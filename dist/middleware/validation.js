@@ -15,6 +15,7 @@ const validateAuditRequest = (req, _res, next) => {
             'any.required': 'URL is required',
         }),
         includeScreenshot: joi_1.default.boolean().optional().default(false),
+        format: joi_1.default.string().optional(),
         customCriteria: joi_1.default.array().items(joi_1.default.string()).optional(),
     });
     const { error, value } = schema.validate(req.body);

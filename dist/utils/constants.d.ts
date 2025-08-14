@@ -1,10 +1,9 @@
 export declare const API_VERSION = "1.0.0";
 export declare const EVALUATION_WEIGHTS: {
-    readonly valueProposition: 0.25;
-    readonly featuresAndBenefits: 0.2;
-    readonly ctaAnalysis: 0.2;
-    readonly seoReadiness: 0.2;
-    readonly trustSignals: 0.15;
+    readonly valueProposition: 0.35;
+    readonly featuresAndBenefits: 0.3;
+    readonly ctaAnalysis: 0.25;
+    readonly trustSignals: 0.1;
 };
 export declare const SCORE_THRESHOLDS: {
     readonly excellent: 90;

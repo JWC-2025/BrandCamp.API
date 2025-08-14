@@ -4,10 +4,12 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import swaggerUi from 'swagger-ui-express';
 
 import { errorHandler } from './middleware/errorHandler';
 import auditRoutes from './routes/audit';
 import healthRoutes from './routes/health';
+import swaggerSpecs from './config/swagger';
 
 dotenv.config();
 
@@ -28,6 +30,8 @@ app.use(limiter);
 
 app.use('/api/health', healthRoutes);
 app.use('/api/audit', auditRoutes);
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 
 app.use(errorHandler);
 

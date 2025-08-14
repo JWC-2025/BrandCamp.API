@@ -16,6 +16,7 @@ export const validateAuditRequest = (
         'any.required': 'URL is required',
       }),
     includeScreenshot: Joi.boolean().optional().default(false),
+    format: Joi.string().optional(),
     customCriteria: Joi.array().items(Joi.string()).optional(),
   });
 

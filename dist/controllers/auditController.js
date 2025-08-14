@@ -6,6 +6,7 @@ const websiteAnalyzer_1 = require("../services/websiteAnalyzer");
 const scoringEngine_1 = require("../services/scoringEngine");
 const reportGenerator_1 = require("../services/reportGenerator");
 const logger_1 = require("../utils/logger");
+const csvConverter_1 = require("../utils/csvConverter");
 const websiteAnalyzer = new websiteAnalyzer_1.WebsiteAnalyzer();
 const scoringEngine = new scoringEngine_1.ScoringEngine();
 const reportGenerator = new reportGenerator_1.ReportGenerator();
@@ -26,21 +27,18 @@ const createAudit = async (req, res, next) => {
                 valueProposition: scores.valueProposition.score,
                 featuresAndBenefits: scores.featuresAndBenefits.score,
                 ctaAnalysis: scores.ctaAnalysis.score,
-                seoReadiness: scores.seoReadiness.score,
                 trustSignals: scores.trustSignals.score,
             },
             insights: {
                 valueProposition: scores.valueProposition.insights,
                 featuresAndBenefits: scores.featuresAndBenefits.insights,
                 ctaAnalysis: scores.ctaAnalysis.insights,
-                seoReadiness: scores.seoReadiness.insights,
                 trustSignals: scores.trustSignals.insights,
             },
             recommendations: {
                 valueProposition: scores.valueProposition.recommendations,
                 featuresAndBenefits: scores.featuresAndBenefits.recommendations,
                 ctaAnalysis: scores.ctaAnalysis.recommendations,
-                seoReadiness: scores.seoReadiness.recommendations,
                 trustSignals: scores.trustSignals.recommendations,
             },
             screenshot: auditRequest.includeScreenshot
@@ -52,10 +50,21 @@ const createAudit = async (req, res, next) => {
             },
         };
         logger_1.logger.info(`Audit completed for URL: ${auditRequest.url} (ID: ${auditId})`);
-        res.status(200).json({
-            success: true,
-            data: auditResult,
-        });
+        const acceptHeader = req.headers.accept;
+        logger_1.logger.info(`${auditRequest}`);
+        if (auditRequest.format === 'csv' || acceptHeader?.includes('text/csv')) {
+            logger_1.logger.info(`creating csv file for audit result...`);
+            const csvData = csvConverter_1.CSVConverter.convertAuditResultToCSV(auditResult);
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="audit-${auditId}.csv"`);
+            res.status(200).send(csvData);
+        }
+        else {
+            res.status(200).json({
+                success: true,
+                data: auditResult,
+            });
+        }
     }
     catch (error) {
         logger_1.logger.error('Audit creation failed:', error);

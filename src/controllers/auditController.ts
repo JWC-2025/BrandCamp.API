@@ -6,6 +6,7 @@ import { ScoringEngine } from '../services/scoringEngine';
 import { ReportGenerator } from '../services/reportGenerator';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
+import { CSVConverter } from '../utils/csvConverter';
 
 const websiteAnalyzer = new WebsiteAnalyzer();
 const scoringEngine = new ScoringEngine();
@@ -28,7 +29,7 @@ export const createAudit = async (
     // Generate scores using AI evaluation
     const scores = await scoringEngine.calculateScores(websiteData);
 
-    // Generate insights and recommendations
+    // Generate insights and recommendations  
     await reportGenerator.generateReport(websiteData, scores);
 
     const auditResult: AuditResult = {
@@ -40,21 +41,18 @@ export const createAudit = async (
         valueProposition: scores.valueProposition.score,
         featuresAndBenefits: scores.featuresAndBenefits.score,
         ctaAnalysis: scores.ctaAnalysis.score,
-        seoReadiness: scores.seoReadiness.score,
         trustSignals: scores.trustSignals.score,
       },
       insights: {
         valueProposition: scores.valueProposition.insights,
         featuresAndBenefits: scores.featuresAndBenefits.insights,
         ctaAnalysis: scores.ctaAnalysis.insights,
-        seoReadiness: scores.seoReadiness.insights,
         trustSignals: scores.trustSignals.insights,
       },
       recommendations: {
         valueProposition: scores.valueProposition.recommendations,
         featuresAndBenefits: scores.featuresAndBenefits.recommendations,
         ctaAnalysis: scores.ctaAnalysis.recommendations,
-        seoReadiness: scores.seoReadiness.recommendations,
         trustSignals: scores.trustSignals.recommendations,
       },
       screenshot: auditRequest.includeScreenshot
@@ -68,10 +66,22 @@ export const createAudit = async (
 
     logger.info(`Audit completed for URL: ${auditRequest.url} (ID: ${auditId})`);
 
-    res.status(200).json({
-      success: true,
-      data: auditResult,
-    });
+    // Check if CSV format is requested
+    const acceptHeader = req.headers.accept;
+    logger.info(`${auditRequest}`);
+    if (auditRequest.format === 'csv' || acceptHeader?.includes('text/csv')) {
+      logger.info(`creating csv file for audit result...`);
+      const csvData = CSVConverter.convertAuditResultToCSV(auditResult);
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="audit-${auditId}.csv"`);
+      res.status(200).send(csvData);
+    } else {
+      res.status(200).json({
+        success: true,
+        data: auditResult,
+      });
+    }
   } catch (error) {
     logger.error('Audit creation failed:', error as Error);
     next(error);

@@ -7,12 +7,15 @@ exports.MockAIService = exports.OpenAIService = exports.ClaudeService = exports.
 const openai_1 = __importDefault(require("openai"));
 const sdk_1 = __importDefault(require("@anthropic-ai/sdk"));
 const logger_1 = require("../utils/logger");
+const promptTemplates_1 = require("./promptTemplates");
 class AIService {
     async analyzeWebsite(websiteData, analysisType, prompt) {
         try {
             logger_1.logger.debug(`Starting AI analysis for ${analysisType} on ${websiteData.url}`);
-            const fullPrompt = this.buildPrompt(websiteData, prompt);
+            const preliminaryResult = await this.performPreliminaryAnalysis(websiteData);
+            const fullPrompt = this.buildEnhancedPrompt(websiteData, analysisType, prompt, preliminaryResult);
             const response = await this.makeAIRequest(fullPrompt);
+            console.log('AIResponse ' + response);
             const result = this.parseAIResponse(response);
             logger_1.logger.debug(`Completed AI analysis for ${analysisType} on ${websiteData.url}`);
             return result;
@@ -22,7 +25,50 @@ class AIService {
             return this.getFallbackResult(analysisType);
         }
     }
-    buildPrompt(websiteData, specificPrompt) {
+    async performPreliminaryAnalysis(websiteData) {
+        try {
+            const preliminaryPrompt = `
+      Quickly analyze this website to understand:
+      1. Industry/business type
+      2. Target audience
+      3. Primary business goal (lead generation, sales, information, etc.)
+      
+      Website: ${websiteData.url}
+      Title: ${websiteData.metadata.title}
+      Description: ${websiteData.metadata.description}
+      Content preview: ${websiteData.html.substring(0, 1500)}...
+      
+      Respond in JSON format:
+      {
+        "industry": "detected industry",
+        "businessType": "business model type", 
+        "targetAudience": "primary target audience",
+        "primaryGoal": "main website objective"
+      }
+      `;
+            const response = await this.makeAIRequest(preliminaryPrompt);
+            const parsed = JSON.parse(response.replace(/```json\n?|\n?```/g, '').trim());
+            return {
+                industry: parsed.industry || (0, promptTemplates_1.detectIndustry)(websiteData),
+                businessType: parsed.businessType || 'general',
+                targetAudience: parsed.targetAudience || 'general audience',
+                primaryGoal: parsed.primaryGoal || 'business objective'
+            };
+        }
+        catch {
+            return {
+                industry: (0, promptTemplates_1.detectIndustry)(websiteData),
+                businessType: 'general',
+                targetAudience: 'general audience',
+                primaryGoal: 'business objective'
+            };
+        }
+    }
+    buildEnhancedPrompt(websiteData, analysisType, specificPrompt, context) {
+        const industryPrompt = (0, promptTemplates_1.getIndustryPrompt)(context.industry, analysisType);
+        return this.buildPrompt(websiteData, specificPrompt, context, industryPrompt);
+    }
+    buildPrompt(websiteData, specificPrompt, context, industryPrompt) {
         const performanceData = websiteData.performance ? `
 Core Web Vitals:
 - LCP (Largest Contentful Paint): ${websiteData.performance.coreWebVitals.lcp}ms
@@ -47,13 +93,32 @@ SEO Analysis:
 Accessibility Analysis:
 - Accessibility Score: ${websiteData.accessibility.score}/100
 - Issues Found: ${websiteData.accessibility.issues.length > 0 ? websiteData.accessibility.issues.join(', ') : 'None'}` : '';
+        const contextSection = context ? `
+BUSINESS CONTEXT ANALYSIS:
+- Industry: ${context.industry}
+- Business Type: ${context.businessType}
+- Target Audience: ${context.targetAudience}
+- Primary Goal: ${context.primaryGoal}
+
+This context should inform your evaluation criteria and recommendations.
+` : '';
+        const industrySection = industryPrompt ? `
+INDUSTRY-SPECIFIC EVALUATION CRITERIA:
+${industryPrompt}
+
+Apply these industry-specific considerations in your analysis.
+` : '';
         return `
 You are an expert marketing analyst and web performance specialist evaluating a website. Please analyze the following comprehensive website data and provide your assessment.
 
+${contextSection}
+
+WEBSITE TECHNICAL DATA:
 Website URL: ${websiteData.url}
 Page Title: ${websiteData.metadata.title}
 Meta Description: ${websiteData.metadata.description}
 H1 Tags: ${websiteData.metadata.h1Tags.join(', ')}
+Keywords: ${websiteData.metadata.keywords.join(', ')}
 Number of Forms: ${websiteData.metadata.forms}
 Number of Images: ${websiteData.metadata.images.length}
 Number of Links: ${websiteData.metadata.links.length}
@@ -65,16 +130,45 @@ ${seoData}
 
 ${accessibilityData}
 
-HTML Content Preview: ${websiteData.html.substring(0, 2000)}...
+${industrySection}
 
+CONTENT ANALYSIS:
+Full HTML Content: ${websiteData.html.substring(0, 6000)}...
+
+EVALUATION TASK:
 ${specificPrompt}
 
-Please respond in the following JSON format:
+Please provide a comprehensive analysis considering:
+1. The business context and industry standards
+2. Target audience expectations and needs  
+3. Industry-specific best practices
+4. Current performance metrics and technical factors
+5. Content quality and messaging effectiveness
+
+Respond in the following JSON format with detailed, actionable insights:
 {
   "score": <number between 0-100>,
-  "insights": ["insight1", "insight2", "insight3"],
-  "recommendations": ["recommendation1", "recommendation2", "recommendation3"]
+  "insights": [
+    "Primary insight with specific details",
+    "Secondary insight with contextual analysis", 
+    "Technical insight with performance implications",
+    "Content insight with messaging evaluation",
+    "Industry-specific insight with competitive context"
+  ],
+  "recommendations": [
+    "High-priority recommendation with implementation approach",
+    "Medium-priority recommendation with expected impact",
+    "Technical recommendation with specific fixes",
+    "Content recommendation with messaging improvements", 
+    "Strategic recommendation for long-term optimization"
+  ]
 }
+
+Ensure all insights and recommendations are:
+- Specific and actionable
+- Contextually relevant to the industry and business type
+- Backed by observable data from the website analysis
+- Prioritized by potential impact and implementation difficulty
 
 Make sure your response is valid JSON and nothing else.
 `;
@@ -85,15 +179,15 @@ Make sure your response is valid JSON and nothing else.
             const parsed = JSON.parse(cleanedResponse);
             return {
                 score: Math.max(0, Math.min(100, parsed.score || 0)),
-                insights: Array.isArray(parsed.insights) ? parsed.insights : [],
+                insights: Array.isArray(parsed.insights) ? parsed.insights : [response.substring(0, 500)],
                 recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
             };
         }
         catch (error) {
-            logger_1.logger.warn('Failed to parse AI response, using fallback');
+            logger_1.logger.warn('Failed to parse AI response, returning raw response as insights');
             return {
                 score: 50,
-                insights: ['Unable to generate insights due to parsing error'],
+                insights: [response],
                 recommendations: ['Please review the website manually'],
             };
         }
@@ -118,7 +212,7 @@ class ClaudeService extends AIService {
         try {
             const message = await this.anthropic.messages.create({
                 model: "claude-3-5-haiku-20241022",
-                max_tokens: 1000,
+                max_tokens: 4000,
                 temperature: 0.3,
                 messages: [
                     {
@@ -147,7 +241,7 @@ class ClaudeService extends AIService {
             const fullPrompt = this.buildPrompt(websiteData, prompt);
             const message = await this.anthropic.messages.create({
                 model: "claude-3-5-haiku-20241022",
-                max_tokens: 1000,
+                max_tokens: 4000,
                 temperature: 0.3,
                 messages: [
                     {
@@ -206,7 +300,7 @@ class OpenAIService extends AIService {
                     }
                 ],
                 temperature: 0.3,
-                max_tokens: 1000,
+                max_tokens: 4000,
             });
             const response = completion.choices[0]?.message?.content;
             if (!response) {
@@ -250,7 +344,7 @@ class OpenAIService extends AIService {
                     }
                 ],
                 temperature: 0.3,
-                max_tokens: 1000,
+                max_tokens: 4000,
             });
             const response = completion.choices[0]?.message?.content;
             if (!response) {
@@ -270,6 +364,39 @@ exports.OpenAIService = OpenAIService;
 class MockAIService extends AIService {
     async makeAIRequest(prompt) {
         await new Promise(resolve => setTimeout(resolve, 500));
+        if (prompt.includes('Comprehensive Website Analysis')) {
+            return JSON.stringify({
+                seo: {
+                    structuredData: Math.random() > 0.5,
+                    metaTagsComplete: Math.random() > 0.3,
+                    headingStructure: Math.random() > 0.4
+                },
+                accessibility: {
+                    score: Math.floor(Math.random() * 40) + 60,
+                    issues: [
+                        "Some images missing alt text",
+                        "Form elements could use better labeling"
+                    ]
+                },
+                performance: {
+                    coreWebVitals: {
+                        lcp: Math.floor(Math.random() * 2000) + 1500,
+                        fid: Math.floor(Math.random() * 50) + 25,
+                        cls: Math.round((Math.random() * 0.2 + 0.05) * 100) / 100
+                    },
+                    loadingMetrics: {
+                        domContentLoaded: Math.floor(Math.random() * 1000) + 500,
+                        firstContentfulPaint: Math.floor(Math.random() * 800) + 400,
+                        largestContentfulPaint: Math.floor(Math.random() * 1500) + 1000
+                    },
+                    networkMetrics: {
+                        requestCount: Math.floor(Math.random() * 20) + 10,
+                        transferSize: Math.floor(Math.random() * 2000000) + 500000,
+                        resourceLoadTime: Math.floor(Math.random() * 500) + 300
+                    }
+                }
+            });
+        }
         const analysisType = this.extractAnalysisType(prompt);
         return JSON.stringify({
             score: Math.floor(Math.random() * 40) + 50,

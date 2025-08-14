@@ -6,40 +6,35 @@ const logger_1 = require("../utils/logger");
 const valueProposition_1 = require("../evaluators/valueProposition");
 const featuresAndBenefits_1 = require("../evaluators/featuresAndBenefits");
 const ctaAnalysis_1 = require("../evaluators/ctaAnalysis");
-const seoReadiness_1 = require("../evaluators/seoReadiness");
 const trustSignals_1 = require("../evaluators/trustSignals");
 class ScoringEngine {
     constructor() {
         this.valuePropositionEvaluator = new valueProposition_1.ValuePropositionEvaluator();
         this.featuresAndBenefitsEvaluator = new featuresAndBenefits_1.FeaturesAndBenefitsEvaluator();
         this.ctaAnalysisEvaluator = new ctaAnalysis_1.CTAAnalysisEvaluator();
-        this.seoReadinessEvaluator = new seoReadiness_1.SEOReadinessEvaluator();
         this.trustSignalsEvaluator = new trustSignals_1.TrustSignalsEvaluator();
     }
     async calculateScores(websiteData) {
         try {
-            logger_1.logger.info(`Starting scoring evaluation for: ${websiteData.url}`);
-            const [valueProposition, featuresAndBenefits, ctaAnalysis, seoReadiness, trustSignals,] = await Promise.all([
+            logger_1.logger.info(`Starting individual evaluator scoring for: ${websiteData.url}`);
+            const [valueProposition, featuresAndBenefits, ctaAnalysis, trustSignals,] = await Promise.all([
                 this.valuePropositionEvaluator.evaluate(websiteData),
                 this.featuresAndBenefitsEvaluator.evaluate(websiteData),
                 this.ctaAnalysisEvaluator.evaluate(websiteData),
-                this.seoReadinessEvaluator.evaluate(websiteData),
                 this.trustSignalsEvaluator.evaluate(websiteData),
             ]);
             const overallScore = this.calculateOverallScore({
                 valueProposition: valueProposition.score,
                 featuresAndBenefits: featuresAndBenefits.score,
                 ctaAnalysis: ctaAnalysis.score,
-                seoReadiness: seoReadiness.score,
                 trustSignals: trustSignals.score,
             });
-            logger_1.logger.info(`Scoring evaluation completed for: ${websiteData.url} - Overall Score: ${overallScore}`);
+            logger_1.logger.info(`Individual evaluator scoring completed for: ${websiteData.url} - Overall Score: ${overallScore}`);
             return {
                 overall: overallScore,
                 valueProposition,
                 featuresAndBenefits,
                 ctaAnalysis,
-                seoReadiness,
                 trustSignals,
             };
         }
@@ -52,7 +47,6 @@ class ScoringEngine {
         const weightedSum = scores.valueProposition * constants_1.EVALUATION_WEIGHTS.valueProposition +
             scores.featuresAndBenefits * constants_1.EVALUATION_WEIGHTS.featuresAndBenefits +
             scores.ctaAnalysis * constants_1.EVALUATION_WEIGHTS.ctaAnalysis +
-            scores.seoReadiness * constants_1.EVALUATION_WEIGHTS.seoReadiness +
             scores.trustSignals * constants_1.EVALUATION_WEIGHTS.trustSignals;
         return Math.round(weightedSum);
     }

@@ -60,9 +60,6 @@ export class ReportGenerator {
     if (scores.ctaAnalysis.score >= SCORE_THRESHOLDS.good) {
       strengths.push('Effective call-to-action implementation');
     }
-    if (scores.seoReadiness.score >= SCORE_THRESHOLDS.good) {
-      strengths.push('Good SEO optimization');
-    }
     if (scores.trustSignals.score >= SCORE_THRESHOLDS.good) {
       strengths.push('Strong trust and credibility signals');
     }
@@ -81,9 +78,6 @@ export class ReportGenerator {
     }
     if (scores.ctaAnalysis.score < SCORE_THRESHOLDS.good) {
       improvements.push('Optimize call-to-action placement and messaging');
-    }
-    if (scores.seoReadiness.score < SCORE_THRESHOLDS.good) {
-      improvements.push('Improve SEO optimization and meta data');
     }
     if (scores.trustSignals.score < SCORE_THRESHOLDS.good) {
       improvements.push('Add more trust signals and credibility indicators');

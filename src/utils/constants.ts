@@ -1,11 +1,10 @@
 export const API_VERSION = '1.0.0';
 
 export const EVALUATION_WEIGHTS = {
-  valueProposition: 0.25,
-  featuresAndBenefits: 0.2,
-  ctaAnalysis: 0.2,
-  seoReadiness: 0.2,
-  trustSignals: 0.15,
+  valueProposition: 0.35,
+  featuresAndBenefits: 0.30,
+  ctaAnalysis: 0.25,
+  trustSignals: 0.10,
 } as const;
 
 export const SCORE_THRESHOLDS = {

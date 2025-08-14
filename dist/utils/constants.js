@@ -3,11 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ERROR_MESSAGES = exports.ALLOWED_DOMAINS = exports.MAX_PAGE_SIZE = exports.DEFAULT_TIMEOUT = exports.SCORE_THRESHOLDS = exports.EVALUATION_WEIGHTS = exports.API_VERSION = void 0;
 exports.API_VERSION = '1.0.0';
 exports.EVALUATION_WEIGHTS = {
-    valueProposition: 0.25,
-    featuresAndBenefits: 0.2,
-    ctaAnalysis: 0.2,
-    seoReadiness: 0.2,
-    trustSignals: 0.15,
+    valueProposition: 0.35,
+    featuresAndBenefits: 0.30,
+    ctaAnalysis: 0.25,
+    trustSignals: 0.10,
 };
 exports.SCORE_THRESHOLDS = {
     excellent: 90,

@@ -4,7 +4,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WebsiteAnalyzer = void 0;
-
 const axios_1 = __importDefault(require("axios"));
 const jsdom_1 = require("jsdom");
 const logger_1 = require("../utils/logger");

@@ -40,7 +40,7 @@ app.use(cors({
 }));
 app.use(morgan('combined'));
 // Timeout middleware for serverless functions
-app.use((req, res, next) => {
+app.use((_req, res, next) => {
   // Set timeout to 25 seconds (less than Vercel's 30s limit)
   const timeout = setTimeout(() => {
     if (!res.headersSent) {
@@ -63,7 +63,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(limiter);
 
 // Root route
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     name: 'Agency Audit API',
     version: '1.0.0',

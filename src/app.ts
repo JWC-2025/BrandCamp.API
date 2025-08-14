@@ -39,6 +39,25 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 app.use(morgan('combined'));
+// Timeout middleware for serverless functions
+app.use((req, res, next) => {
+  // Set timeout to 25 seconds (less than Vercel's 30s limit)
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(408).json({ 
+        error: 'Request timeout',
+        message: 'The request took too long to process' 
+      });
+    }
+  }, 25000);
+  
+  // Clear timeout when response is finished
+  res.on('finish', () => clearTimeout(timeout));
+  res.on('close', () => clearTimeout(timeout));
+  
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(limiter);

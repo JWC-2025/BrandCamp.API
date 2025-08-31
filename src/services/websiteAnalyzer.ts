@@ -34,6 +34,7 @@ export class WebsiteAnalyzer {
     const startTime = Date.now();
     
     try {
+      logger.info(`gathering website data..`);
       const response = await axios.get(url, {
         timeout: DEFAULT_TIMEOUT,
         maxContentLength: MAX_PAGE_SIZE,
@@ -59,7 +60,7 @@ export class WebsiteAnalyzer {
           loadTime: Date.now() - startTime,
         },
       };
-
+      logger.info(`finished gathering website data..`);
       return websiteData;
     } catch (error) {
       logger.error(`Failed to fetch basic website data for ${url}:`, error as Error);

@@ -1,11 +1,36 @@
 import Bull from 'bull';
-import Redis from 'ioredis';
+import Redis, { RedisOptions } from 'ioredis';
 import { logger } from '../utils/logger';
+import { config } from './environment';
+
+// Redis connection configuration
+// Supports both individual config options and complete Redis URL
+const createRedisConnection = (): Redis => {
+  // If REDIS_URL is provided, use it directly (common in production environments like Vercel, Heroku, etc.)
+  if (config.redis.url) {
+    logger.info('Using Redis URL from environment variable');
+    return new Redis(config.redis.url);
+  }
+  
+  // Otherwise use individual environment variables
+  logger.info('Using individual Redis configuration from environment variables');
+  const redisOptions: RedisOptions = {
+    host: config.redis.host,
+    port: config.redis.port,
+    ...(config.redis.password && { password: config.redis.password }),
+    ...(config.redis.username && { username: config.redis.username }),
+    connectionName: 'audit-api',
+    maxRetriesPerRequest: 3,
+    lazyConnect: true,
+  };
+  
+  return new Redis(redisOptions);
+};
 
 // Check if Redis is available
 const isRedisAvailable = async (): Promise<boolean> => {
   try {
-    const testRedis = new Redis('redis://default:UGbZzuXT8mIDKG8ZI5Dd2svn8h9r56LW@redis-19722.c274.us-east-1-3.ec2.redns.redis-cloud.com:19722');
+    const testRedis = createRedisConnection();
     
     await testRedis.connect();
     await testRedis.ping();
@@ -17,16 +42,6 @@ const isRedisAvailable = async (): Promise<boolean> => {
   }
 };
 
-// Redis connection configuration
-// redis://default:UGbZzuXT8mIDKG8ZI5Dd2svn8h9r56LW@redis-19722.c274.us-east-1-3.ec2.redns.redis-cloud.com:19722
-const redisConfig = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  ...(process.env.REDIS_PASSWORD && { password: process.env.REDIS_PASSWORD }),
-  maxRetriesPerRequest: 3,
-  lazyConnect: true,
-};
-
 // Create Redis connection only if available
 let redis: Redis | null = null;
 let auditQueue: Bull.Queue;
@@ -35,18 +50,40 @@ const initializeQueue = async () => {
   const redisAvailable = await isRedisAvailable();
   
   if (redisAvailable) {
-    redis = new Redis('redis://default:UGbZzuXT8mIDKG8ZI5Dd2svn8h9r56LW@redis-19722.c274.us-east-1-3.ec2.redns.redis-cloud.com:19722');
+    redis = createRedisConnection();
     
     redis.on('connect', () => {
-      logger.info('Connected to Redis');
+      if (config.redis.url) {
+        // Redis URL format - mask the password for security
+        const maskedUrl = config.redis.url.replace(/:([^:@]+)@/, ':***@');
+        logger.info('Connected to Redis via URL', { url: maskedUrl });
+      } else {
+        // Object format
+        logger.info('Connected to Redis', {
+          host: config.redis.host,
+          port: config.redis.port,
+          hasPassword: !!config.redis.password,
+          hasUsername: !!config.redis.username
+        });
+      }
     });
 
     redis.on('error', (err) => {
       logger.error('Redis connection error:', err);
     });
 
+    // Create the Redis configuration for Bull queue
+    const bullRedisConfig = config.redis.url 
+      ? config.redis.url 
+      : {
+          host: config.redis.host,
+          port: config.redis.port,
+          ...(config.redis.password && { password: config.redis.password }),
+          ...(config.redis.username && { username: config.redis.username }),
+        };
+
     auditQueue = new Bull('audit processing', {
-      redis: redisConfig,
+      redis: bullRedisConfig,
       defaultJobOptions: {
         removeOnComplete: 10,
         removeOnFail: 10,

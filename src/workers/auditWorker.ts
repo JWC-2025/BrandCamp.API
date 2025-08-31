@@ -16,30 +16,74 @@ const auditRepository = new AuditRepository();
 
 export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
   const { auditId, auditRequest } = job.data;
+  const processingStartTime = Date.now();
   
   try {
-    logger.info(`Starting audit processing for ID: ${auditId}`);
+    logger.info(`[AUDIT_WORKER_START] Starting audit processing`, {
+      auditId,
+      url: auditRequest.url,
+      format: auditRequest.format || 'json',
+      includeScreenshot: auditRequest.includeScreenshot || false,
+      jobId: job.id,
+      timestamp: new Date().toISOString()
+    });
     
     // Update status to processing
+    logger.debug(`[AUDIT_WORKER_DB] Updating audit status to processing for ID: ${auditId}`);
     await auditRepository.updateStatus(auditId, 'processing');
     await job.progress(10);
 
     // Analyze website
-    logger.info(`Analyzing website: ${auditRequest.url}`);
+    logger.info(`[AUDIT_WORKER_ANALYZE] Starting website analysis`, {
+      auditId,
+      url: auditRequest.url,
+      includeScreenshot: auditRequest.includeScreenshot
+    });
+    const analysisStartTime = Date.now();
     const websiteData = await websiteAnalyzer.analyze(
       auditRequest.url, 
       auditRequest.includeScreenshot
     );
+    const analysisTime = Date.now() - analysisStartTime;
+    logger.info(`[AUDIT_WORKER_ANALYZE_COMPLETE] Website analysis completed`, {
+      auditId,
+      url: auditRequest.url,
+      analysisTimeMs: analysisTime,
+      hasScreenshot: !!websiteData.screenshot,
+      pageTitle: websiteData.metadata.title
+    });
     await job.progress(40);
 
     // Generate scores using AI evaluation
-    logger.info(`Calculating scores for audit: ${auditId}`);
+    logger.info(`[AUDIT_WORKER_SCORING] Starting AI scoring analysis`, {
+      auditId,
+      url: auditRequest.url
+    });
+    const scoringStartTime = Date.now();
     const scores = await scoringEngine.calculateScores(websiteData);
+    const scoringTime = Date.now() - scoringStartTime;
+    logger.info(`[AUDIT_WORKER_SCORING_COMPLETE] AI scoring completed`, {
+      auditId,
+      overallScore: scores.overall,
+      scoringTimeMs: scoringTime,
+      scores: {
+        valueProposition: scores.valueProposition.score,
+        featuresAndBenefits: scores.featuresAndBenefits.score,
+        ctaAnalysis: scores.ctaAnalysis.score,
+        trustSignals: scores.trustSignals.score
+      }
+    });
     await job.progress(70);
 
     // Generate insights and recommendations  
-    logger.info(`Generating report for audit: ${auditId}`);
+    logger.info(`[AUDIT_WORKER_REPORT] Generating audit report`, {
+      auditId,
+      url: auditRequest.url
+    });
+    const reportStartTime = Date.now();
     await reportGenerator.generateReport(websiteData, scores);
+    const reportTime = Date.now() - reportStartTime;
+    logger.debug(`[AUDIT_WORKER_REPORT_COMPLETE] Report generation completed in ${reportTime}ms`);
     await job.progress(85);
 
     // Create audit result
@@ -78,8 +122,12 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     // Generate and upload CSV if format is CSV
     let blobUrl: string | undefined;
     if (auditRequest.format === 'csv') {
-      logger.info(`Generating CSV and uploading to Vercel Blob for audit: ${auditId}`);
+      logger.info(`[AUDIT_WORKER_CSV] Generating CSV and uploading to blob storage`, {
+        auditId,
+        fileName: `audit-${auditId}-${Date.now()}.csv`
+      });
       
+      const csvStartTime = Date.now();
       const csvData = CSVConverter.convertAuditResultToCSV(auditResult);
       const fileName = `audit-${auditId}-${Date.now()}.csv`;
       
@@ -88,18 +136,46 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
         csvData,
         auditId
       );
+      
+      const csvTime = Date.now() - csvStartTime;
+      logger.info(`[AUDIT_WORKER_CSV_COMPLETE] CSV generation and upload completed`, {
+        auditId,
+        fileName,
+        blobUrl,
+        csvTimeMs: csvTime,
+        csvSizeBytes: csvData.length
+      });
     }
 
     await job.progress(95);
 
     // Update database with results
+    logger.debug(`[AUDIT_WORKER_DB_UPDATE] Updating database with audit results`, {
+      auditId,
+      hasBlobUrl: !!blobUrl
+    });
     await auditRepository.updateWithResult(auditId, auditResult, blobUrl);
     
     await job.progress(100);
-    logger.info(`Audit processing completed successfully for ID: ${auditId}`);
+    
+    const totalProcessingTime = Date.now() - processingStartTime;
+    logger.info(`[AUDIT_WORKER_SUCCESS] Audit processing completed successfully`, {
+      auditId,
+      url: auditRequest.url,
+      overallScore: auditResult.overallScore,
+      totalProcessingTimeMs: totalProcessingTime,
+      jobId: job.id,
+      completedAt: new Date().toISOString()
+    });
 
   } catch (error) {
-    logger.error(`Audit processing failed for ID: ${auditId}:`, error as Error);
+    const totalProcessingTime = Date.now() - processingStartTime;
+    logger.error(`[AUDIT_WORKER_ERROR] Audit processing failed`, error as Error, {
+      auditId,
+      url: auditRequest.url,
+      totalProcessingTimeMs: totalProcessingTime,
+      jobId: job.id
+    });
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     await auditRepository.markAsFailed(auditId, errorMessage);

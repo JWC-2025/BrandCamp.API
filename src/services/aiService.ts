@@ -28,21 +28,54 @@ export abstract class AIService {
   }
 
   async analyzeWebsite(websiteData: WebsiteData, analysisType: string, prompt: string): Promise<AIAnalysisResult> {
+    const startTime = Date.now();
     try {
-      logger.debug(`Starting AI analysis for ${analysisType} on ${websiteData.url}`);
+      logger.info(`[AI_ANALYSIS_START] Starting AI analysis`, {
+        analysisType,
+        url: websiteData.url,
+        hasScreenshot: !!websiteData.screenshot,
+        timestamp: new Date().toISOString()
+      });
       
       // Multi-stage evaluation: preliminary assessment then detailed analysis
+      logger.debug(`[AI_PRELIMINARY] Starting preliminary analysis for ${websiteData.url}`);
       const preliminaryResult = await this.performPreliminaryAnalysis(websiteData);
+      logger.debug(`[AI_PRELIMINARY] Completed preliminary analysis`, {
+        industry: preliminaryResult.industry,
+        businessType: preliminaryResult.businessType,
+        targetAudience: preliminaryResult.targetAudience
+      });
+      
       const fullPrompt = this.buildEnhancedPrompt(websiteData, analysisType, prompt, preliminaryResult);
       const validatedPrompt = this.validatePromptSize(fullPrompt);
+      
+      logger.debug(`[AI_PROMPT] Sending prompt to AI service`, {
+        analysisType,
+        promptLength: validatedPrompt.length,
+        url: websiteData.url
+      });
+      
       const response = await this.makeAIRequest(validatedPrompt);
-      console.log('AIResponse ' + response);
       const result = this.parseAIResponse(response);
-      logger.debug(`Completed AI analysis for ${analysisType} on ${websiteData.url}`);
+      
+      const analysisTime = Date.now() - startTime;
+      logger.info(`[AI_ANALYSIS_COMPLETE] Completed AI analysis successfully`, {
+        analysisType,
+        url: websiteData.url,
+        score: result.score,
+        insightsCount: result.insights.length,
+        recommendationsCount: result.recommendations.length,
+        analysisTimeMs: analysisTime
+      });
       
       return result;
     } catch (error) {
-      logger.error(`AI analysis failed for ${analysisType}:`, error as Error);
+      const analysisTime = Date.now() - startTime;
+      logger.error(`[AI_ANALYSIS_ERROR] AI analysis failed`, error as Error, {
+        analysisType,
+        url: websiteData.url,
+        analysisTimeMs: analysisTime
+      });
       // Return fallback result instead of throwing
       return this.getFallbackResult(analysisType);
     }
@@ -292,7 +325,11 @@ export class ClaudeService extends AIService {
     
     if (timeSinceLastRequest < this.minRequestInterval) {
       const waitTime = this.minRequestInterval - timeSinceLastRequest;
-      logger.debug(`Rate limiting: waiting ${waitTime}ms before next request`);
+      logger.debug(`[ANTHROPIC_RATE_LIMIT] Enforcing rate limit`, {
+        waitTimeMs: waitTime,
+        minIntervalMs: this.minRequestInterval,
+        timeSinceLastMs: timeSinceLastRequest
+      });
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
@@ -302,10 +339,29 @@ export class ClaudeService extends AIService {
   protected async makeAIRequest(prompt: string): Promise<string> {
     const maxRetries = 3;
     let attempt = 0;
+    const requestId = Math.random().toString(36).substring(2, 15);
+    const requestStartTime = Date.now();
+    
+    logger.debug(`[ANTHROPIC_REQUEST_START] Starting Claude API request`, {
+      requestId,
+      promptLength: prompt.length,
+      maxRetries,
+      timestamp: new Date().toISOString()
+    });
     
     while (attempt < maxRetries) {
+      const attemptStartTime = Date.now();
       try {
         await this.enforceRateLimit();
+        
+        logger.debug(`[ANTHROPIC_API_CALL] Making API call to Claude`, {
+          requestId,
+          attempt: attempt + 1,
+          maxRetries,
+          model: "claude-3-5-haiku-20241022",
+          maxTokens: 3000,
+          temperature: 0.3
+        });
         
         const message = await this.anthropic.messages.create({
           model: "claude-3-5-haiku-20241022",
@@ -324,39 +380,99 @@ export class ClaudeService extends AIService {
           throw new Error('Unexpected response type from Claude');
         }
 
+        const attemptTime = Date.now() - attemptStartTime;
+        const totalTime = Date.now() - requestStartTime;
+        
+        logger.info(`[ANTHROPIC_REQUEST_SUCCESS] Claude API request successful`, {
+          requestId,
+          attempt: attempt + 1,
+          responseLength: response.text.length,
+          attemptTimeMs: attemptTime,
+          totalTimeMs: totalTime,
+          inputTokens: message.usage?.input_tokens,
+          outputTokens: message.usage?.output_tokens
+        });
+
         return response.text;
       } catch (error: unknown) {
         attempt++;
-        const apiError = error as { error?: { type?: string } };
+        const attemptTime = Date.now() - attemptStartTime;
+        const apiError = error as { error?: { type?: string; message?: string } };
+        
+        logger.warn(`[ANTHROPIC_REQUEST_ERROR] Claude API request failed`, {
+          requestId,
+          attempt,
+          maxRetries,
+          attemptTimeMs: attemptTime,
+          errorType: apiError?.error?.type || 'unknown',
+          errorMessage: apiError?.error?.message || (error as Error).message
+        });
         
         // Check if it's a rate limit error
         if (apiError?.error?.type === 'rate_limit_error' && attempt < maxRetries) {
           const backoffTime = Math.pow(2, attempt) * 5000; // Exponential backoff: 5s, 10s, 20s
-          logger.warn(`Rate limit hit, retrying in ${backoffTime}ms (attempt ${attempt}/${maxRetries})`);
+          logger.warn(`[ANTHROPIC_RETRY] Rate limit hit, retrying with backoff`, {
+            requestId,
+            attempt,
+            maxRetries,
+            backoffTimeMs: backoffTime
+          });
           await new Promise(resolve => setTimeout(resolve, backoffTime));
           continue;
         }
         
-        logger.error('Claude API request failed:', error as Error);
+        logger.error(`[ANTHROPIC_REQUEST_FAILED] Claude API request failed permanently`, error as Error, {
+          requestId,
+          finalAttempt: attempt,
+          totalTimeMs: Date.now() - requestStartTime
+        });
         throw error;
       }
     }
     
+    const totalTime = Date.now() - requestStartTime;
+    logger.error(`[ANTHROPIC_MAX_RETRIES] Max retries exceeded for Claude API request`, undefined, {
+      requestId,
+      maxRetries,
+      totalTimeMs: totalTime
+    });
     throw new Error('Max retries exceeded for Claude API request');
   }
 
   // Enhanced analysis with screenshot support
   async analyzeWithScreenshot(websiteData: WebsiteData, analysisType: string, prompt: string): Promise<AIAnalysisResult> {
+    const startTime = Date.now();
+    const requestId = Math.random().toString(36).substring(2, 15);
+    
     try {
       if (!websiteData.screenshot) {
+        logger.debug(`[ANTHROPIC_SCREENSHOT] No screenshot available, falling back to text-only analysis`, {
+          requestId,
+          url: websiteData.url,
+          analysisType
+        });
         return this.analyzeWebsite(websiteData, analysisType, prompt);
       }
 
-      logger.debug(`Starting Claude analysis with screenshot for ${analysisType} on ${websiteData.url}`);
+      logger.info(`[ANTHROPIC_SCREENSHOT_START] Starting Claude analysis with screenshot`, {
+        requestId,
+        analysisType,
+        url: websiteData.url,
+        screenshotSize: websiteData.screenshot.length,
+        timestamp: new Date().toISOString()
+      });
       
       const fullPrompt = this.buildPrompt(websiteData, prompt);
       
       await this.enforceRateLimit();
+      
+      logger.debug(`[ANTHROPIC_SCREENSHOT_API] Making multimodal API call to Claude`, {
+        requestId,
+        model: "claude-3-5-haiku-20241022",
+        maxTokens: 3000,
+        hasImage: true,
+        promptLength: fullPrompt.length
+      });
       
       const message = await this.anthropic.messages.create({
         model: "claude-3-5-haiku-20241022",
@@ -389,11 +505,29 @@ export class ClaudeService extends AIService {
       }
 
       const result = this.parseAIResponse(response.text);
-      logger.debug(`Completed Claude analysis with screenshot for ${analysisType} on ${websiteData.url}`);
+      const analysisTime = Date.now() - startTime;
+      
+      logger.info(`[ANTHROPIC_SCREENSHOT_SUCCESS] Claude analysis with screenshot completed`, {
+        requestId,
+        analysisType,
+        url: websiteData.url,
+        score: result.score,
+        insightsCount: result.insights.length,
+        recommendationsCount: result.recommendations.length,
+        analysisTimeMs: analysisTime,
+        inputTokens: message.usage?.input_tokens,
+        outputTokens: message.usage?.output_tokens
+      });
       
       return result;
     } catch (error) {
-      logger.error(`Claude analysis with screenshot failed for ${analysisType}:`, error as Error);
+      const analysisTime = Date.now() - startTime;
+      logger.error(`[ANTHROPIC_SCREENSHOT_ERROR] Claude analysis with screenshot failed, falling back to text-only`, error as Error, {
+        requestId,
+        analysisType,
+        url: websiteData.url,
+        analysisTimeMs: analysisTime
+      });
       // Fallback to text-only analysis
       return this.analyzeWebsite(websiteData, analysisType, prompt);
     }

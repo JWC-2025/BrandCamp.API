@@ -1,16 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import { AuditRequest, AuditResult } from '../types/audit';
-import { WebsiteAnalyzer } from '../services/websiteAnalyzer';
-import { ScoringEngine } from '../services/scoringEngine';
-import { ReportGenerator } from '../services/reportGenerator';
+import { AuditRequest, AuditSubmissionResponse, AuditStatusResponse, AuditJobData } from '../types/audit';
+import { auditQueue } from '../config/queue';
+import { AuditRepository } from '../repositories/auditRepository';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
-import { CSVConverter } from '../utils/csvConverter';
 
-const websiteAnalyzer = new WebsiteAnalyzer();
-const scoringEngine = new ScoringEngine();
-const reportGenerator = new ReportGenerator();
+const auditRepository = new AuditRepository();
 
 export const createAudit = async (
   req: Request,
@@ -19,90 +14,142 @@ export const createAudit = async (
 ): Promise<void> => {
   try {
     const auditRequest: AuditRequest = req.body;
-    const auditId = uuidv4();
 
-    logger.info(`Starting audit for URL: ${auditRequest.url} (ID: ${auditId})`);
+    logger.info(`Received audit request for URL: ${auditRequest.url}`);
 
-    // Analyze website
-    const websiteData = await websiteAnalyzer.analyze(auditRequest.url, auditRequest.includeScreenshot);
+    // Create audit record in database
+    const auditId = await auditRepository.create(auditRequest);
 
-    // Generate scores using AI evaluation
-    const scores = await scoringEngine.calculateScores(websiteData);
-
-    // Generate insights and recommendations  
-    await reportGenerator.generateReport(websiteData, scores);
-
-    const auditResult: AuditResult = {
-      id: auditId,
-      url: auditRequest.url,
-      timestamp: new Date(),
-      overallScore: scores.overall,
-      scores: {
-        valueProposition: scores.valueProposition.score,
-        featuresAndBenefits: scores.featuresAndBenefits.score,
-        ctaAnalysis: scores.ctaAnalysis.score,
-        trustSignals: scores.trustSignals.score,
-      },
-      insights: {
-        valueProposition: scores.valueProposition.insights,
-        featuresAndBenefits: scores.featuresAndBenefits.insights,
-        ctaAnalysis: scores.ctaAnalysis.insights,
-        trustSignals: scores.trustSignals.insights,
-      },
-      recommendations: {
-        valueProposition: scores.valueProposition.recommendations,
-        featuresAndBenefits: scores.featuresAndBenefits.recommendations,
-        ctaAnalysis: scores.ctaAnalysis.recommendations,
-        trustSignals: scores.trustSignals.recommendations,
-      },
-      screenshot: auditRequest.includeScreenshot
-        ? websiteData.screenshot?.toString('base64')
-        : undefined,
-      metadata: {
-        analysisTime: Date.now() - new Date().getTime(),
-        version: process.env.npm_package_version || '1.0.0',
-      },
+    // Queue the audit job for background processing
+    const jobData: AuditJobData = {
+      auditId,
+      auditRequest,
     };
 
-    logger.info(`Audit completed for URL: ${auditRequest.url} (ID: ${auditId})`);
+    await auditQueue.add('process-audit', jobData, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 2000,
+      },
+    });
 
-    // Check if CSV format is requested
-    const acceptHeader = req.headers.accept;
-    logger.info(`${auditRequest}`);
-    if (auditRequest.format === 'csv' || acceptHeader?.includes('text/csv')) {
-      logger.info(`creating csv file for audit result...`);
-      const csvData = CSVConverter.convertAuditResultToCSV(auditResult);
-      
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="audit-${auditId}.csv"`);
-      res.status(200).send(csvData);
-    } else {
-      res.status(200).json({
-        success: true,
-        data: auditResult,
-      });
-    }
+    logger.info(`Audit job queued successfully for ID: ${auditId}`);
+
+    // Return immediate response
+    const response: AuditSubmissionResponse = {
+      success: true,
+      auditId,
+      status: 'pending',
+      statusUrl: `${req.protocol}://${req.get('host')}/api/audit/${auditId}/status`,
+      message: 'Audit request received and queued for processing',
+    };
+
+    res.status(202).json(response);
   } catch (error) {
-    logger.error('Audit creation failed:', error as Error);
+    logger.error('Audit submission failed:', error as Error);
     next(error);
   }
 };
 
-export const getAuditById = async (
+export const getAuditStatus = async (
   req: Request,
-  _res: Response,
+  res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    req.params;
+    const { id } = req.params;
 
-    // In a real application, you would fetch this from a database
-    // For now, we'll return a placeholder response
-    const appError: AppError = new Error('Audit retrieval not implemented yet');
-    appError.statusCode = 501;
-    appError.isOperational = true;
-    throw appError;
+    const auditRecord = await auditRepository.findById(id);
+    
+    if (!auditRecord) {
+      const appError: AppError = new Error('Audit not found');
+      appError.statusCode = 404;
+      appError.isOperational = true;
+      throw appError;
+    }
+
+    const response: AuditStatusResponse = {
+      auditId: auditRecord.id,
+      status: auditRecord.status,
+      url: auditRecord.url,
+      downloadUrl: auditRecord.blob_url || undefined,
+      createdAt: auditRecord.created_at.toISOString(),
+      completedAt: auditRecord.completed_at?.toISOString() || undefined,
+      error: auditRecord.error_message || undefined,
+    };
+
+    res.status(200).json(response);
   } catch (error) {
+    logger.error('Failed to get audit status:', error as Error);
+    next(error);
+  }
+};
+
+export const getAuditResult = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const auditRecord = await auditRepository.findById(id);
+    
+    if (!auditRecord) {
+      const appError: AppError = new Error('Audit not found');
+      appError.statusCode = 404;
+      appError.isOperational = true;
+      throw appError;
+    }
+
+    if (auditRecord.status !== 'completed') {
+      const appError: AppError = new Error('Audit not yet completed');
+      appError.statusCode = 409;
+      appError.isOperational = true;
+      throw appError;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: auditRecord.result_data,
+    });
+  } catch (error) {
+    logger.error('Failed to get audit result:', error as Error);
+    next(error);
+  }
+};
+
+export const getAuditDownload = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const auditRecord = await auditRepository.findById(id);
+    
+    if (!auditRecord) {
+      const appError: AppError = new Error('Audit not found');
+      appError.statusCode = 404;
+      appError.isOperational = true;
+      throw appError;
+    }
+
+    if (!auditRecord.blob_url) {
+      const appError: AppError = new Error('No download available for this audit');
+      appError.statusCode = 404;
+      appError.isOperational = true;
+      throw appError;
+    }
+
+    res.status(200).json({
+      downloadUrl: auditRecord.blob_url,
+      fileName: `audit-${auditRecord.id}.csv`,
+    });
+  } catch (error) {
+    logger.error('Failed to get audit download:', error as Error);
     next(error);
   }
 };

@@ -35,6 +35,33 @@ export interface AuditResult {
   };
 }
 
+export interface AuditSubmissionResponse {
+  success: boolean;
+  auditId: string;
+  status: 'pending';
+  statusUrl: string;
+  message: string;
+}
+
+export interface AuditStatusResponse {
+  auditId: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  url: string;
+  downloadUrl?: string | undefined;
+  createdAt: string;
+  completedAt?: string | undefined;
+  error?: string | undefined;
+  progress?: {
+    step: string;
+    percentage: number;
+  };
+}
+
+export interface AuditJobData {
+  auditId: string;
+  auditRequest: AuditRequest;
+}
+
 export interface WebsiteData {
   url: string;
   html: string;

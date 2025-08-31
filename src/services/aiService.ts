@@ -12,6 +12,20 @@ export interface AIAnalysisResult {
 
 export abstract class AIService {
   protected abstract makeAIRequest(prompt: string): Promise<string>;
+  
+  private validatePromptSize(prompt: string): string {
+    const maxSize = 10000; // Reasonable limit to avoid token issues
+    if (prompt.length <= maxSize) return prompt;
+    
+    // Truncate while preserving the task section
+    const taskSection = prompt.split('EVALUATION TASK:');
+    if (taskSection.length === 2) {
+      const prefix = taskSection[0].substring(0, maxSize * 0.7);
+      return prefix + '\n\nEVALUATION TASK:\n' + taskSection[1];
+    }
+    
+    return prompt.substring(0, maxSize) + '\n\n[Content truncated for size limits]';
+  }
 
   async analyzeWebsite(websiteData: WebsiteData, analysisType: string, prompt: string): Promise<AIAnalysisResult> {
     try {
@@ -20,7 +34,8 @@ export abstract class AIService {
       // Multi-stage evaluation: preliminary assessment then detailed analysis
       const preliminaryResult = await this.performPreliminaryAnalysis(websiteData);
       const fullPrompt = this.buildEnhancedPrompt(websiteData, analysisType, prompt, preliminaryResult);
-      const response = await this.makeAIRequest(fullPrompt);
+      const validatedPrompt = this.validatePromptSize(fullPrompt);
+      const response = await this.makeAIRequest(validatedPrompt);
       console.log('AIResponse ' + response);
       const result = this.parseAIResponse(response);
       logger.debug(`Completed AI analysis for ${analysisType} on ${websiteData.url}`);
@@ -41,23 +56,15 @@ export abstract class AIService {
   }> {
     try {
       const preliminaryPrompt = `
-      Quickly analyze this website to understand:
-      1. Industry/business type
-      2. Target audience
-      3. Primary business goal (lead generation, sales, information, etc.)
+      Analyze this website for: 1. Industry 2. Target audience 3. Primary goal
       
       Website: ${websiteData.url}
       Title: ${websiteData.metadata.title}
       Description: ${websiteData.metadata.description}
-      Content preview: ${websiteData.html.substring(0, 1500)}...
+      Key Content: ${this.summarizeContent(websiteData.html, 800)}
       
-      Respond in JSON format:
-      {
-        "industry": "detected industry",
-        "businessType": "business model type", 
-        "targetAudience": "primary target audience",
-        "primaryGoal": "main website objective"
-      }
+      JSON response:
+      {"industry":"","businessType":"","targetAudience":"","primaryGoal":""}
       `;
       
       const response = await this.makeAIRequest(preliminaryPrompt);
@@ -78,6 +85,32 @@ export abstract class AIService {
         primaryGoal: 'business objective'
       };
     }
+  }
+
+  protected summarizeContent(content: string, maxLength: number = 3000): string {
+    if (content.length <= maxLength) return content;
+    
+    // Extract key sections: headings, form labels, button text, links
+    const keyPatterns = [
+      /<h[1-6][^>]*>([^<]+)<\/h[1-6]>/gi,
+      /<title[^>]*>([^<]+)<\/title>/gi,
+      /<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["'][^>]*>/gi,
+      /<button[^>]*>([^<]+)<\/button>/gi,
+      /<a[^>]*>([^<]+)<\/a>/gi,
+      /<label[^>]*>([^<]+)<\/label>/gi,
+      /<input[^>]*placeholder=["']([^"']+)["']/gi
+    ];
+    
+    const extractedContent: string[] = [];
+    keyPatterns.forEach(pattern => {
+      let match;
+      while ((match = pattern.exec(content)) !== null && extractedContent.length < 100) {
+        extractedContent.push(match[1].trim());
+      }
+    });
+    
+    const summarized = extractedContent.join(' | ');
+    return summarized.length > maxLength ? summarized.substring(0, maxLength) + '...' : summarized;
   }
 
   protected buildEnhancedPrompt(
@@ -168,7 +201,7 @@ ${accessibilityData}
 ${industrySection}
 
 CONTENT ANALYSIS:
-Full HTML Content: ${websiteData.html.substring(0, 6000)}...
+Key Content: ${this.summarizeContent(websiteData.html, 2000)}
 
 EVALUATION TASK:
 ${specificPrompt}
@@ -243,6 +276,8 @@ Make sure your response is valid JSON and nothing else.
 // Claude AI Service Implementation
 export class ClaudeService extends AIService {
   private anthropic: Anthropic;
+  private lastRequestTime: number = 0;
+  private readonly minRequestInterval = 12000; // 12 seconds for 5 req/min limit
 
   constructor(apiKey?: string) {
     super();
@@ -251,30 +286,63 @@ export class ClaudeService extends AIService {
     });
   }
 
-  protected async makeAIRequest(prompt: string): Promise<string> {
-    try {
-      const message = await this.anthropic.messages.create({
-        model: "claude-3-5-haiku-20241022",
-        max_tokens: 4000,
-        temperature: 0.3,
-        messages: [
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-      });
-
-      const response = message.content[0];
-      if (response.type !== 'text') {
-        throw new Error('Unexpected response type from Claude');
-      }
-
-      return response.text;
-    } catch (error) {
-      logger.error('Claude API request failed:', error as Error);
-      throw error;
+  private async enforceRateLimit(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      const waitTime = this.minRequestInterval - timeSinceLastRequest;
+      logger.debug(`Rate limiting: waiting ${waitTime}ms before next request`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
+    
+    this.lastRequestTime = Date.now();
+  }
+
+  protected async makeAIRequest(prompt: string): Promise<string> {
+    const maxRetries = 3;
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        await this.enforceRateLimit();
+        
+        const message = await this.anthropic.messages.create({
+          model: "claude-3-5-haiku-20241022",
+          max_tokens: 3000, // Reduced to help with rate limits
+          temperature: 0.3,
+          messages: [
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+        });
+
+        const response = message.content[0];
+        if (response.type !== 'text') {
+          throw new Error('Unexpected response type from Claude');
+        }
+
+        return response.text;
+      } catch (error: unknown) {
+        attempt++;
+        const apiError = error as { error?: { type?: string } };
+        
+        // Check if it's a rate limit error
+        if (apiError?.error?.type === 'rate_limit_error' && attempt < maxRetries) {
+          const backoffTime = Math.pow(2, attempt) * 5000; // Exponential backoff: 5s, 10s, 20s
+          logger.warn(`Rate limit hit, retrying in ${backoffTime}ms (attempt ${attempt}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, backoffTime));
+          continue;
+        }
+        
+        logger.error('Claude API request failed:', error as Error);
+        throw error;
+      }
+    }
+    
+    throw new Error('Max retries exceeded for Claude API request');
   }
 
   // Enhanced analysis with screenshot support
@@ -288,9 +356,11 @@ export class ClaudeService extends AIService {
       
       const fullPrompt = this.buildPrompt(websiteData, prompt);
       
+      await this.enforceRateLimit();
+      
       const message = await this.anthropic.messages.create({
         model: "claude-3-5-haiku-20241022",
-        max_tokens: 4000,
+        max_tokens: 3000,
         temperature: 0.3,
         messages: [
           {

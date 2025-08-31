@@ -36,17 +36,21 @@ export class ScoringEngine {
     try {
       logger.info(`Starting individual evaluator scoring for: ${websiteData.url}`);
       
-      const [
-        valueProposition,
-        featuresAndBenefits,
-        ctaAnalysis,
-        trustSignals,
-      ] = await Promise.all([
-        this.valuePropositionEvaluator.evaluate(websiteData),
-        this.featuresAndBenefitsEvaluator.evaluate(websiteData),
-        this.ctaAnalysisEvaluator.evaluate(websiteData),
-        this.trustSignalsEvaluator.evaluate(websiteData),
-      ]);
+      // Execute evaluators sequentially with delays to avoid rate limits
+      logger.info('Running Value Proposition evaluation...');
+      const valueProposition = await this.valuePropositionEvaluator.evaluate(websiteData);
+      await this.delay(12000); // 12 second delay for 5 req/min limit
+      
+      logger.info('Running Features & Benefits evaluation...');
+      const featuresAndBenefits = await this.featuresAndBenefitsEvaluator.evaluate(websiteData);
+      await this.delay(12000);
+      
+      logger.info('Running CTA Analysis evaluation...');
+      const ctaAnalysis = await this.ctaAnalysisEvaluator.evaluate(websiteData);
+      await this.delay(12000);
+      
+      logger.info('Running Trust Signals evaluation...');
+      const trustSignals = await this.trustSignalsEvaluator.evaluate(websiteData);
 
       const overallScore = this.calculateOverallScore({
         valueProposition: valueProposition.score,
@@ -84,5 +88,9 @@ export class ScoringEngine {
       scores.trustSignals * EVALUATION_WEIGHTS.trustSignals;
 
     return Math.round(weightedSum);
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

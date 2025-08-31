@@ -11,7 +11,7 @@ import auditRoutes from './routes/audit';
 import healthRoutes from './routes/health';
 import swaggerSpecs from './config/swagger';
 
-dotenv.config();
+dotenv.config({ path: '.env.local' });
 
 const app = express();
 

@@ -87,6 +87,9 @@ router.post('/', auditRateLimit, validateAuditRequest, createAudit);
  *                         type: string
  *                       url:
  *                         type: string
+ *                       websiteName:
+ *                         type: string
+ *                         description: Domain name extracted from the URL
  *                       status:
  *                         type: string
  *                         enum: [pending, processing, completed, failed]

@@ -4,6 +4,7 @@ import { auditQueue } from '../config/queue';
 import { AuditRepository } from '../repositories/auditRepository';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
+import { extractWebsiteNameFromUrl } from '../utils/urlUtils';
 
 const auditRepository = new AuditRepository();
 
@@ -203,6 +204,7 @@ export const getAllAudits = async (
       data: auditRecords.map(record => ({
         auditId: record.id,
         url: record.url,
+        websiteName: extractWebsiteNameFromUrl(record.url),
         status: record.status,
         format: record.format,
         includeScreenshot: record.include_screenshot,

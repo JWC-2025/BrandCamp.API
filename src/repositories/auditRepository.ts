@@ -126,6 +126,22 @@ export class AuditRepository {
     }
   }
 
+  async findAll(limit: number = 100, offset: number = 0): Promise<AuditRecord[]> {
+    try {
+      const result = await this.sql`
+        SELECT * FROM audit_requests 
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+      
+      return result.map(row => this.mapRowToRecord(row));
+    } catch (error) {
+      logger.error('Error finding all audit records:', error as Error);
+      throw error;
+    }
+  }
+
   async getAuditStats(): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
     try {
       const result = await this.sql`

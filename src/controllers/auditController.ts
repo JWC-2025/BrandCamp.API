@@ -174,6 +174,56 @@ export const getAuditResult = async (
   }
 };
 
+export const getAllAudits = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
+    const limit = parseInt(req.query.limit as string) || 100;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    logger.debug(`[AUDIT_LIST] Request received for all audits from ${clientIp}`, {
+      limit,
+      offset
+    });
+
+    const auditRecords = await auditRepository.findAll(limit, offset);
+
+    logger.info(`[AUDIT_LIST] Successfully retrieved ${auditRecords.length} audit records`, {
+      count: auditRecords.length,
+      limit,
+      offset,
+      clientIp
+    });
+
+    res.status(200).json({
+      success: true,
+      data: auditRecords.map(record => ({
+        auditId: record.id,
+        url: record.url,
+        status: record.status,
+        format: record.format,
+        includeScreenshot: record.include_screenshot,
+        createdAt: record.created_at.toISOString(),
+        updatedAt: record.updated_at.toISOString(),
+        completedAt: record.completed_at?.toISOString() || null,
+        downloadUrl: record.blob_url || null,
+        error: record.error_message || null
+      })),
+      pagination: {
+        limit,
+        offset,
+        total: auditRecords.length
+      }
+    });
+  } catch (error) {
+    logger.error(`[AUDIT_LIST_ERROR] Failed to get all audit records:`, error as Error);
+    next(error);
+  }
+};
+
 export const getAuditDownload = async (
   req: Request,
   res: Response,

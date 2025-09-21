@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createAudit, getAuditStatus, getAuditResult, getAuditDownload } from '../controllers/auditController';
+import { createAudit, getAuditStatus, getAuditResult, getAuditDownload, getAllAudits } from '../controllers/auditController';
 import { validateAuditRequest } from '../middleware/validation';
 import { auditRateLimit } from '../middleware/rateLimiter';
 
@@ -46,6 +46,87 @@ const router = Router();
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/', auditRateLimit, validateAuditRequest, createAudit);
+
+/**
+ * @swagger
+ * /api/audit:
+ *   get:
+ *     tags:
+ *       - Audit
+ *     summary: Get all audit records
+ *     description: Retrieves all audit records with pagination support
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 100
+ *         description: Maximum number of records to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *         description: Number of records to skip
+ *     responses:
+ *       200:
+ *         description: Audit records retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       auditId:
+ *                         type: string
+ *                       url:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                         enum: [pending, processing, completed, failed]
+ *                       format:
+ *                         type: string
+ *                       includeScreenshot:
+ *                         type: boolean
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                       updatedAt:
+ *                         type: string
+ *                         format: date-time
+ *                       completedAt:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *                       downloadUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       error:
+ *                         type: string
+ *                         nullable: true
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     limit:
+ *                       type: integer
+ *                     offset:
+ *                       type: integer
+ *                     total:
+ *                       type: integer
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/', getAllAudits);
 
 /**
  * @swagger

@@ -9,7 +9,6 @@ import swaggerUi from 'swagger-ui-express';
 import { errorHandler } from './middleware/errorHandler';
 import auditRoutes from './routes/audit';
 import healthRoutes from './routes/health';
-import webhookRoutes from './routes/webhooks';
 import swaggerSpecs from './config/swagger';
 
 dotenv.config({ path: '.env.local' });
@@ -75,7 +74,6 @@ app.get('/', (_req, res) => {
     endpoints: {
       health: '/api/health',
       audit: '/api/audit',
-      webhooks: '/api/webhooks',
       docs: '/api-docs'
     }
   });
@@ -83,7 +81,6 @@ app.get('/', (_req, res) => {
 
 app.use('/api/health', healthRoutes);
 app.use('/api/audit', auditRoutes);
-app.use('/api/webhooks', webhookRoutes);
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 

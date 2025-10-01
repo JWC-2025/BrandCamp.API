@@ -19,12 +19,6 @@ export const config = {
     password: process.env.REDIS_PASSWORD,
     username: process.env.REDIS_USERNAME,
   },
-  qstash: {
-    token: process.env.QSTASH_TOKEN,
-    currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY,
-    nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY,
-    url: process.env.QSTASH_URL,
-  },
   api: {
     defaultTimeout: parseInt(process.env.DEFAULT_TIMEOUT || '30000', 10),
     maxPageSize: parseInt(process.env.MAX_PAGE_SIZE || '5242880', 10),

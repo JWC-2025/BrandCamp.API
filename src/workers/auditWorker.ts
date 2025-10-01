@@ -1,3 +1,4 @@
+import Bull, { Job } from 'bull';
 import { AuditJobData, AuditResult } from '../types/audit';
 import { WebsiteAnalyzer } from '../services/websiteAnalyzer';
 import { ScoringEngine } from '../services/scoringEngine';
@@ -13,14 +14,7 @@ const reportGenerator = new ReportGenerator();
 const blobStorageService = new BlobStorageService();
 const auditRepository = new AuditRepository();
 
-// Generic job interface for compatibility
-interface JobLike {
-  id: string;
-  data: AuditJobData;
-  progress: (progress: number) => Promise<void>;
-}
-
-export const processAudit = async (job: JobLike): Promise<void> => {
+export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
   const { auditId, auditRequest } = job.data;
   const processingStartTime = Date.now();
   
@@ -190,7 +184,7 @@ export const processAudit = async (job: JobLike): Promise<void> => {
   }
 };
 
-export const setupAuditWorker = (queue: any): void => {
+export const setupAuditWorker = (queue: Bull.Queue): void => {
   queue.process('process-audit', 5, processAudit);
   
   logger.info('Audit worker setup completed');

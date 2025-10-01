@@ -1,105 +1,106 @@
-import Bull from 'bull';
-import Redis, { RedisOptions } from 'ioredis';
+import { Client } from '@upstash/qstash';
 import { logger } from '../utils/logger';
 import { config } from './environment';
 
-// Redis connection configuration
-// Supports both individual config options and complete Redis URL
-const createRedisConnection = (): Redis => {
-  // If REDIS_URL is provided, use it directly (common in production environments like Vercel, Heroku, etc.)
-  if (config.redis.url) {
-    logger.info('Using Redis URL from environment variable');
-    return new Redis(config.redis.url);
+// QStash client configuration
+const createQStashClient = (): Client | null => {
+  if (!config.qstash.token) {
+    logger.warn('QStash token not provided, falling back to in-memory processing');
+    return null;
   }
   
-  // Otherwise use individual environment variables
-  logger.info('Using individual Redis configuration from environment variables');
-  const redisOptions: RedisOptions = {
-    host: config.redis.host,
-    port: config.redis.port,
-    ...(config.redis.password && { password: config.redis.password }),
-    ...(config.redis.username && { username: config.redis.username }),
-    connectionName: 'audit-api',
-    maxRetriesPerRequest: 3,
-    lazyConnect: true,
-  };
-  
-  return new Redis(redisOptions);
+  logger.info('Using QStash for queue processing');
+  return new Client({
+    token: config.qstash.token,
+  });
 };
 
-// Check if Redis is available
-const isRedisAvailable = async (): Promise<boolean> => {
-  try {
-    const testRedis = createRedisConnection();
-    
-    await testRedis.connect();
-    await testRedis.ping();
-    testRedis.disconnect();
-    return true;
-  } catch (error) {
-    logger.warn('Redis not available, using in-memory queue for development');
-    return false;
-  }
+// Check if QStash is available
+const isQStashAvailable = (): boolean => {
+  return !!config.qstash.token;
 };
 
-// Create Redis connection only if available
-let redis: Redis | null = null;
-let auditQueue: Bull.Queue;
+// Queue interface to maintain compatibility with Bull
+interface QueueInterface {
+  add: (name: string, data: any, options?: any) => Promise<any>;
+  process: (name: string, processor?: any) => void;
+  close: () => Promise<void>;
+  on: (event: string, handler: (...args: any[]) => void) => void;
+}
+
+// Create QStash client and queue interface
+let qstashClient: Client | null = null;
+let auditQueue: QueueInterface;
 
 const initializeQueue = async () => {
-  const redisAvailable = await isRedisAvailable();
+  const qstashAvailable = isQStashAvailable();
   
-  if (redisAvailable) {
-    redis = createRedisConnection();
+  if (qstashAvailable) {
+    qstashClient = createQStashClient();
     
-    redis.on('connect', () => {
-      if (config.redis.url) {
-        // Redis URL format - mask the password for security
-        const maskedUrl = config.redis.url.replace(/:([^:@]+)@/, ':***@');
-        logger.info('Connected to Redis via URL', { url: maskedUrl });
-      } else {
-        // Object format
-        logger.info('Connected to Redis', {
-          host: config.redis.host,
-          port: config.redis.port,
-          hasPassword: !!config.redis.password,
-          hasUsername: !!config.redis.username
-        });
-      }
+    if (!qstashClient) {
+      throw new Error('Failed to create QStash client');
+    }
+
+    logger.info('Connected to QStash', {
+      hasToken: !!config.qstash.token,
     });
 
-    redis.on('error', (err) => {
-      logger.error('Redis connection error:', err);
-    });
-
-    // Create the Redis configuration for Bull queue
-    const bullRedisConfig = config.redis.url 
-      ? config.redis.url 
-      : {
-          host: config.redis.host,
-          port: config.redis.port,
-          ...(config.redis.password && { password: config.redis.password }),
-          ...(config.redis.username && { username: config.redis.username }),
-        };
-
-    auditQueue = new Bull('audit processing', {
-      redis: bullRedisConfig,
-      defaultJobOptions: {
-        removeOnComplete: 10,
-        removeOnFail: 10,
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 2000,
-        },
+    // Create QStash-based queue interface
+    auditQueue = {
+      add: async (name: string, data: any, options?: any) => {
+        try {
+          const jobId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          logger.info(`Adding job to QStash: ${name} (${jobId})`);
+          
+          // Use QStash to publish a message to a webhook endpoint
+          // You'll need to configure a webhook endpoint to receive these messages
+          const webhookUrl = config.qstash.url || `${process.env.WEBHOOK_BASE_URL || 'http://localhost:3000'}/api/webhooks/audit`;
+          
+          const result = await qstashClient!.publishJSON({
+            url: webhookUrl,
+            body: {
+              jobName: name,
+              jobId,
+              data,
+              timestamp: new Date().toISOString(),
+            },
+            delay: options?.delay || 0,
+            retries: options?.attempts || 3,
+          });
+          
+          logger.info(`Job ${jobId} queued successfully`, { messageId: result.messageId });
+          return { id: jobId, messageId: result.messageId };
+        } catch (error) {
+          logger.error(`Failed to queue job ${name}:`, error as Error);
+          throw error;
+        }
       },
-    });
+      
+      process: (name: string, _processor?: any) => {
+        logger.info(`Registered processor for ${name} (QStash mode)`);
+        // In QStash mode, processing happens via webhook endpoints
+        // The processor registration is for compatibility but actual processing
+        // happens when the webhook receives the message
+      },
+      
+      close: async () => {
+        logger.info('QStash queue closed');
+        // QStash client doesn't need explicit closing
+      },
+      
+      on: (event: string, _handler: (...args: any[]) => void) => {
+        // Event handling for compatibility - logging events
+        logger.debug(`Event listener registered for ${event} (QStash mode)`);
+      },
+    };
   } else {
     // Fallback: Create a simple in-memory queue
+    logger.warn('QStash not available, using in-memory processing');
     auditQueue = {
       add: async (name: string, data: any) => {
-        logger.info(`Processing job immediately (no Redis): ${name}`);
-        // Process immediately since we don't have Redis
+        logger.info(`Processing job immediately (no QStash): ${name}`);
+        // Process immediately since we don't have QStash
         const { processAudit } = await import('../workers/auditWorker');
         const mockJob = {
           id: Date.now().toString(),
@@ -118,27 +119,12 @@ const initializeQueue = async () => {
       },
       close: () => Promise.resolve(),
       on: () => {},
-    } as any;
+    };
   }
 
+  // Log queue events for monitoring
   auditQueue.on('error', (error) => {
     logger.error('Queue error:', error);
-  });
-
-  auditQueue.on('waiting', (jobId) => {
-    logger.info(`Job ${jobId} is waiting`);
-  });
-
-  auditQueue.on('active', (job) => {
-    logger.info(`Job ${job.id} started processing`);
-  });
-
-  auditQueue.on('completed', (job) => {
-    logger.info(`Job ${job.id} completed successfully`);
-  });
-
-  auditQueue.on('failed', (job, err) => {
-    logger.error(`Job ${job.id} failed:`, err);
   });
 };
 
@@ -147,18 +133,15 @@ initializeQueue().catch(err => {
   logger.error('Failed to initialize queue:', err);
 });
 
-export { redis };
+export { qstashClient };
 export { auditQueue };
 
 export const closeQueue = async (): Promise<void> => {
   try {
     if (auditQueue && auditQueue.close) {
-      auditQueue.close();
+      await auditQueue.close();
     }
-    if (redis) {
-      redis.disconnect();
-    }
-    logger.info('Queue and Redis connections closed');
+    logger.info('Queue connections closed');
   } catch (error) {
     logger.error('Error closing queue:', error as Error);
   }

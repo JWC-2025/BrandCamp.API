@@ -37,7 +37,7 @@ const isRedisAvailable = async (): Promise<boolean> => {
     testRedis.disconnect();
     return true;
   } catch (error) {
-    logger.warn('Redis not available, using in-memory queue for development');
+    logger.warn('Redis not available: ' + error);
     return false;
   }
 };

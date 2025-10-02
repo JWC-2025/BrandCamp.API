@@ -8,12 +8,12 @@ import { config } from './environment';
 const createRedisConnection = (): Redis => {
   // If REDIS_URL is provided, use it directly (common in production environments like Vercel, Heroku, etc.)
   if (config.redis.url) {
-    logger.info('Using Redis URL from environment variable');
+    logger.warn('Using Redis URL from environment variable');
     return new Redis(config.redis.url);
   }
   
   // Otherwise use individual environment variables
-  logger.info('Using individual Redis configuration from environment variables');
+  logger.warn('Using individual Redis configuration from environment variables');
   const redisOptions: RedisOptions = {
     host: config.redis.host,
     port: config.redis.port,
@@ -56,10 +56,10 @@ const initializeQueue = async () => {
       if (config.redis.url) {
         // Redis URL format - mask the password for security
         const maskedUrl = config.redis.url.replace(/:([^:@]+)@/, ':***@');
-        logger.info('Connected to Redis via URL', { url: maskedUrl });
+        logger.warn('Connected to Redis via URL', { url: maskedUrl });
       } else {
         // Object format
-        logger.info('Connected to Redis', {
+        logger.warn('Connected to Redis', {
           host: config.redis.host,
           port: config.redis.port,
           hasPassword: !!config.redis.password,
@@ -98,7 +98,7 @@ const initializeQueue = async () => {
     // Fallback: Create a simple in-memory queue
     auditQueue = {
       add: async (name: string, data: any) => {
-        logger.info(`Processing job immediately (no Redis): ${name}`);
+        logger.warn(`Processing job immediately (no Redis): ${name}`);
         // Process immediately since we don't have Redis
         const { processAudit } = await import('../workers/auditWorker');
         const mockJob = {

@@ -13,14 +13,14 @@ export interface GeneratedReport {
 export class ReportGenerator {
   async generateReport(websiteData: WebsiteData, scores: ScoringResult): Promise<GeneratedReport> {
     try {
-      logger.info(`Generating report for: ${websiteData.url}`);
+      logger.warn(`Generating report for: ${websiteData.url}`);
 
       const summary = this.generateSummary(websiteData.url, scores.overall);
       const strengths = this.identifyStrengths(scores);
       const improvements = this.identifyImprovements(scores);
       const priority = this.determinePriority(scores.overall);
 
-      logger.info(`Report generation completed for: ${websiteData.url}`);
+      logger.warn(`Report generation completed for: ${websiteData.url}`);
 
       return {
         summary,

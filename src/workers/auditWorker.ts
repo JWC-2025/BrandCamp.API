@@ -19,7 +19,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
   const processingStartTime = Date.now();
   
   try {
-    logger.info(`[AUDIT_WORKER_START] Starting audit processing`, {
+    logger.warn(`[AUDIT_WORKER_START] Starting audit processing`, {
       auditId,
       url: auditRequest.url,
       format: auditRequest.format || 'json',
@@ -34,7 +34,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     await job.progress(10);
 
     // Analyze website
-    logger.info(`[AUDIT_WORKER_ANALYZE] Starting website analysis`, {
+    logger.warn(`[AUDIT_WORKER_ANALYZE] Starting website analysis`, {
       auditId,
       url: auditRequest.url,
       includeScreenshot: auditRequest.includeScreenshot
@@ -45,7 +45,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
       auditRequest.includeScreenshot
     );
     const analysisTime = Date.now() - analysisStartTime;
-    logger.info(`[AUDIT_WORKER_ANALYZE_COMPLETE] Website analysis completed`, {
+    logger.warn(`[AUDIT_WORKER_ANALYZE_COMPLETE] Website analysis completed`, {
       auditId,
       url: auditRequest.url,
       analysisTimeMs: analysisTime,
@@ -55,14 +55,14 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     await job.progress(40);
 
     // Generate scores using AI evaluation
-    logger.info(`[AUDIT_WORKER_SCORING] Starting AI scoring analysis`, {
+    logger.warn(`[AUDIT_WORKER_SCORING] Starting AI scoring analysis`, {
       auditId,
       url: auditRequest.url
     });
     const scoringStartTime = Date.now();
     const scores = await scoringEngine.calculateScores(websiteData);
     const scoringTime = Date.now() - scoringStartTime;
-    logger.info(`[AUDIT_WORKER_SCORING_COMPLETE] AI scoring completed`, {
+    logger.warn(`[AUDIT_WORKER_SCORING_COMPLETE] AI scoring completed`, {
       auditId,
       overallScore: scores.overall,
       scoringTimeMs: scoringTime,
@@ -76,7 +76,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     await job.progress(70);
 
     // Generate insights and recommendations  
-    logger.info(`[AUDIT_WORKER_REPORT] Generating audit report`, {
+    logger.warn(`[AUDIT_WORKER_REPORT] Generating audit report`, {
       auditId,
       url: auditRequest.url
     });
@@ -122,7 +122,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     // Generate and upload CSV if format is CSV
     let blobUrl: string | undefined;
     if (auditRequest.format === 'csv') {
-      logger.info(`[AUDIT_WORKER_CSV] Generating CSV and uploading to blob storage`, {
+      logger.warn(`[AUDIT_WORKER_CSV] Generating CSV and uploading to blob storage`, {
         auditId,
         fileName: `audit-${auditId}-${Date.now()}.csv`
       });
@@ -138,7 +138,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
       );
       
       const csvTime = Date.now() - csvStartTime;
-      logger.info(`[AUDIT_WORKER_CSV_COMPLETE] CSV generation and upload completed`, {
+      logger.warn(`[AUDIT_WORKER_CSV_COMPLETE] CSV generation and upload completed`, {
         auditId,
         fileName,
         blobUrl,
@@ -150,7 +150,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     await job.progress(95);
 
     // Update database with results
-    logger.debug(`[AUDIT_WORKER_DB_UPDATE] Updating database with audit results`, {
+    logger.warn(`[AUDIT_WORKER_DB_UPDATE] Updating database with audit results`, {
       auditId,
       hasBlobUrl: !!blobUrl
     });
@@ -159,7 +159,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     await job.progress(100);
     
     const totalProcessingTime = Date.now() - processingStartTime;
-    logger.info(`[AUDIT_WORKER_SUCCESS] Audit processing completed successfully`, {
+    logger.warn(`[AUDIT_WORKER_SUCCESS] Audit processing completed successfully`, {
       auditId,
       url: auditRequest.url,
       overallScore: auditResult.overallScore,

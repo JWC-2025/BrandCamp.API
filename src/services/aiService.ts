@@ -59,7 +59,7 @@ export abstract class AIService {
       const result = this.parseAIResponse(response);
       
       const analysisTime = Date.now() - startTime;
-      logger.info(`[AI_ANALYSIS_COMPLETE] Completed AI analysis successfully`, {
+      logger.warn(`[AI_ANALYSIS_COMPLETE] Completed AI analysis successfully`, {
         analysisType,
         url: websiteData.url,
         score: result.score,
@@ -383,7 +383,7 @@ export class ClaudeService extends AIService {
         const attemptTime = Date.now() - attemptStartTime;
         const totalTime = Date.now() - requestStartTime;
         
-        logger.info(`[ANTHROPIC_REQUEST_SUCCESS] Claude API request successful`, {
+        logger.warn(`[ANTHROPIC_REQUEST_SUCCESS] Claude API request successful`, {
           requestId,
           attempt: attempt + 1,
           responseLength: response.text.length,
@@ -454,7 +454,7 @@ export class ClaudeService extends AIService {
         return this.analyzeWebsite(websiteData, analysisType, prompt);
       }
 
-      logger.info(`[ANTHROPIC_SCREENSHOT_START] Starting Claude analysis with screenshot`, {
+      logger.warn(`[ANTHROPIC_SCREENSHOT_START] Starting Claude analysis with screenshot`, {
         requestId,
         analysisType,
         url: websiteData.url,
@@ -507,7 +507,7 @@ export class ClaudeService extends AIService {
       const result = this.parseAIResponse(response.text);
       const analysisTime = Date.now() - startTime;
       
-      logger.info(`[ANTHROPIC_SCREENSHOT_SUCCESS] Claude analysis with screenshot completed`, {
+      logger.warn(`[ANTHROPIC_SCREENSHOT_SUCCESS] Claude analysis with screenshot completed`, {
         requestId,
         analysisType,
         url: websiteData.url,

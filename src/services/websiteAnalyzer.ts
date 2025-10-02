@@ -12,7 +12,7 @@ export class WebsiteAnalyzer {
 
   async analyze(url: string, includeScreenshot: boolean = false): Promise<WebsiteData> {
     try {
-      logger.info(`Starting basic website analysis for: ${url}`);
+      logger.warn(`Starting basic website analysis for: ${url}`);
       
       // Get basic HTML content and metadata
       const websiteData = await this.getBasicWebsiteData(url);
@@ -22,7 +22,7 @@ export class WebsiteAnalyzer {
         websiteData.screenshot = Buffer.from('basic-analysis-placeholder', 'utf8');
       }
       
-      logger.info(`Basic website analysis completed for: ${url}`);
+      logger.warn(`Basic website analysis completed for: ${url}`);
       return websiteData;
     } catch (error) {
       logger.error(`Website analysis failed for ${url}:`, error as Error);
@@ -37,7 +37,7 @@ export class WebsiteAnalyzer {
     
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        logger.info(`gathering website data (attempt ${attempt}/${MAX_RETRIES})..`);
+        logger.warn(`gathering website data (attempt ${attempt}/${MAX_RETRIES})..`);
         
         const response = await axios.get(url, {
           timeout: DEFAULT_TIMEOUT,
@@ -73,7 +73,7 @@ export class WebsiteAnalyzer {
           },
         };
         
-        logger.info(`finished gathering website data successfully on attempt ${attempt}`);
+        logger.warn(`finished gathering website data successfully on attempt ${attempt}`);
         return websiteData;
         
       } catch (error) {
@@ -107,7 +107,7 @@ export class WebsiteAnalyzer {
         } else {
           // Wait before retrying (exponential backoff)
           const delay = RETRY_DELAY * attempt;
-          logger.info(`Retrying in ${delay}ms...`);
+          logger.warn(`Retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }

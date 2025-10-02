@@ -34,22 +34,22 @@ export class ScoringEngine {
 
   async calculateScores(websiteData: WebsiteData): Promise<ScoringResult> {
     try {
-      logger.info(`Starting individual evaluator scoring for: ${websiteData.url}`);
+      logger.warn(`Starting individual evaluator scoring for: ${websiteData.url}`);
       
       // Execute evaluators sequentially with delays to avoid rate limits
-      logger.info('Running Value Proposition evaluation...');
+      logger.warn('Running Value Proposition evaluation...');
       const valueProposition = await this.valuePropositionEvaluator.evaluate(websiteData);
       await this.delay(12000); // 12 second delay for 5 req/min limit
       
-      logger.info('Running Features & Benefits evaluation...');
+      logger.warn('Running Features & Benefits evaluation...');
       const featuresAndBenefits = await this.featuresAndBenefitsEvaluator.evaluate(websiteData);
       await this.delay(12000);
       
-      logger.info('Running CTA Analysis evaluation...');
+      logger.warn('Running CTA Analysis evaluation...');
       const ctaAnalysis = await this.ctaAnalysisEvaluator.evaluate(websiteData);
       await this.delay(12000);
       
-      logger.info('Running Trust Signals evaluation...');
+      logger.warn('Running Trust Signals evaluation...');
       const trustSignals = await this.trustSignalsEvaluator.evaluate(websiteData);
 
       const overallScore = this.calculateOverallScore({
@@ -59,7 +59,7 @@ export class ScoringEngine {
         trustSignals: trustSignals.score,
       });
 
-      logger.info(`Individual evaluator scoring completed for: ${websiteData.url} - Overall Score: ${overallScore}`);
+      logger.warn(`Individual evaluator scoring completed for: ${websiteData.url} - Overall Score: ${overallScore}`);
 
       return {
         overall: overallScore,

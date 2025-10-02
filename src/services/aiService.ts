@@ -30,7 +30,7 @@ export abstract class AIService {
   async analyzeWebsite(websiteData: WebsiteData, analysisType: string, prompt: string): Promise<AIAnalysisResult> {
     const startTime = Date.now();
     try {
-      logger.info(`[AI_ANALYSIS_START] Starting AI analysis`, {
+      logger.warn(`[AI_ANALYSIS_START] Starting AI analysis`, {
         analysisType,
         url: websiteData.url,
         hasScreenshot: !!websiteData.screenshot,
@@ -38,9 +38,9 @@ export abstract class AIService {
       });
       
       // Multi-stage evaluation: preliminary assessment then detailed analysis
-      logger.debug(`[AI_PRELIMINARY] Starting preliminary analysis for ${websiteData.url}`);
+      logger.warn(`[AI_PRELIMINARY] Starting preliminary analysis for ${websiteData.url}`);
       const preliminaryResult = await this.performPreliminaryAnalysis(websiteData);
-      logger.debug(`[AI_PRELIMINARY] Completed preliminary analysis`, {
+      logger.warn(`[AI_PRELIMINARY] Completed preliminary analysis`, {
         industry: preliminaryResult.industry,
         businessType: preliminaryResult.businessType,
         targetAudience: preliminaryResult.targetAudience
@@ -49,7 +49,7 @@ export abstract class AIService {
       const fullPrompt = this.buildEnhancedPrompt(websiteData, analysisType, prompt, preliminaryResult);
       const validatedPrompt = this.validatePromptSize(fullPrompt);
       
-      logger.debug(`[AI_PROMPT] Sending prompt to AI service`, {
+      logger.warn(`[AI_PROMPT] Sending prompt to AI service`, {
         analysisType,
         promptLength: validatedPrompt.length,
         url: websiteData.url

@@ -378,13 +378,13 @@ export class ClaudeService extends AIService {
           requestId,
           attempt: attempt + 1,
           maxRetries,
-          model: "claude-3-5-haiku",
+          model: "claude-3-5-haiku-latest",
           maxTokens: 4000,
           temperature: 0.3
         });
         
         const message = await this.anthropic.messages.create({
-          model: "claude-3-5-haiku",
+          model: "claude-3-5-haiku-latest",
           max_tokens: 4000, // Reduced to help with rate limits
           temperature: 0.3,
           messages: [
@@ -488,14 +488,14 @@ export class ClaudeService extends AIService {
       
       logger.debug(`[ANTHROPIC_SCREENSHOT_API] Making multimodal API call to Claude`, {
         requestId,
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-3-5-haiku-latest",
         maxTokens: 3000,
         hasImage: true,
         promptLength: fullPrompt.length
       });
       
       const message = await this.anthropic.messages.create({
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-3-5-haiku-latest",
         max_tokens: 3000,
         temperature: 0.3,
         messages: [

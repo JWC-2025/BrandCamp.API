@@ -23,7 +23,7 @@ Successfully migrated the BrandCamp API from MCP Playwright functions to Claude 
 ### 🤖 **New AI Services**
 
 #### ClaudeService
-- **Model**: `claude-3-5-haiku-20241022`
+- **Model**: `claude-3-5-haiku-latest`
 - **Features**: Text and vision analysis with screenshot support
 - **Fallback**: Automatic fallback to MockAIService without API key
 

@@ -2,7 +2,6 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { WebsiteData } from '../types/audit';
 import { logger } from '../utils/logger';
-import { detectIndustry, getIndustryPrompt } from './promptTemplates';
 
 export interface AIAnalysisResult {
   score: number;
@@ -37,16 +36,7 @@ export abstract class AIService {
         timestamp: new Date().toISOString()
       });
       
-      // Multi-stage evaluation: preliminary assessment then detailed analysis
-      logger.warn(`[AI_PRELIMINARY] Starting preliminary analysis for ${websiteData.url}`);
-      const preliminaryResult = await this.performPreliminaryAnalysis(websiteData);
-      logger.warn(`[AI_PRELIMINARY] Completed preliminary analysis`, {
-        industry: preliminaryResult.industry,
-        businessType: preliminaryResult.businessType,
-        targetAudience: preliminaryResult.targetAudience
-      });
-      
-      const fullPrompt = this.buildEnhancedPrompt(websiteData, analysisType, prompt, preliminaryResult);
+      const fullPrompt = this.buildPrompt(websiteData, prompt);
       const validatedPrompt = this.validatePromptSize(fullPrompt);
       
       logger.warn(`[AI_PROMPT] Sending prompt to AI service`, {
@@ -81,70 +71,6 @@ export abstract class AIService {
     }
   }
 
-  private async performPreliminaryAnalysis(websiteData: WebsiteData): Promise<{
-    industry: string;
-    businessType: string;
-    targetAudience: string;
-    primaryGoal: string;
-  }> {
-    const startTime = Date.now();
-    try {
-      logger.warn(`[PRELIMINARY_ANALYSIS_START] Starting preliminary analysis for ${websiteData.url}`);
-      
-      const preliminaryPrompt = `
-      Analyze this website for: 1. Industry 2. Target audience 3. Primary goal
-      
-      Website: ${websiteData.url}
-      Title: ${websiteData.metadata.title}
-      Description: ${websiteData.metadata.description}
-      Key Content: ${this.summarizeContent(websiteData.html, 800)}
-      
-      JSON response:
-      {"industry":"","businessType":"","targetAudience":"","primaryGoal":""}
-      `;
-      
-      logger.debug(`[PRELIMINARY_ANALYSIS] Making AI request for preliminary analysis`);
-      const response = await this.makeAIRequest(preliminaryPrompt);
-      logger.debug(`[PRELIMINARY_ANALYSIS] Received response, parsing JSON`);
-      
-      // More robust JSON parsing with better error handling
-      let cleanedResponse = response.replace(/```json\n?|\n?```/g, '').trim();
-      
-      // Handle potential markdown formatting or extra text
-      const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        cleanedResponse = jsonMatch[0];
-      }
-      
-      const parsed = JSON.parse(cleanedResponse);
-      
-      const result = {
-        industry: parsed.industry || detectIndustry(websiteData),
-        businessType: parsed.businessType || 'general',
-        targetAudience: parsed.targetAudience || 'general audience',
-        primaryGoal: parsed.primaryGoal || 'business objective'
-      };
-      
-      const analysisTime = Date.now() - startTime;
-      logger.warn(`[PRELIMINARY_ANALYSIS_SUCCESS] Preliminary analysis completed in ${analysisTime}ms`, result);
-      
-      return result;
-    } catch (error) {
-      const analysisTime = Date.now() - startTime;
-      logger.warn(`[PRELIMINARY_ANALYSIS_ERROR] Preliminary analysis failed after ${analysisTime}ms, using fallback`, {
-        error: (error as Error).message,
-        url: websiteData.url
-      });
-      
-      // Fallback to keyword-based detection
-      return {
-        industry: detectIndustry(websiteData),
-        businessType: 'general',
-        targetAudience: 'general audience', 
-        primaryGoal: 'business objective'
-      };
-    }
-  }
 
   protected summarizeContent(content: string, maxLength: number = 3000): string {
     if (content.length <= maxLength) return content;
@@ -172,23 +98,10 @@ export abstract class AIService {
     return summarized.length > maxLength ? summarized.substring(0, maxLength) + '...' : summarized;
   }
 
-  protected buildEnhancedPrompt(
-    websiteData: WebsiteData, 
-    analysisType: string, 
-    specificPrompt: string, 
-    context: { industry: string; businessType: string; targetAudience: string; primaryGoal: string }
-  ): string {
-    // Get industry-specific guidance
-    const industryPrompt = getIndustryPrompt(context.industry, analysisType);
-    
-    return this.buildPrompt(websiteData, specificPrompt, context, industryPrompt);
-  }
 
   protected buildPrompt(
     websiteData: WebsiteData, 
-    specificPrompt: string, 
-    context?: { industry: string; businessType: string; targetAudience: string; primaryGoal: string },
-    industryPrompt?: string
+    specificPrompt: string
   ): string {
     // Build comprehensive website analysis data
     const performanceData = websiteData.performance ? `
@@ -218,27 +131,18 @@ Accessibility Analysis:
 - Accessibility Score: ${websiteData.accessibility.score}/100
 - Issues Found: ${websiteData.accessibility.issues.length > 0 ? websiteData.accessibility.issues.join(', ') : 'None'}` : '';
 
-    const contextSection = context ? `
-BUSINESS CONTEXT ANALYSIS:
-- Industry: ${context.industry}
-- Business Type: ${context.businessType}
-- Target Audience: ${context.targetAudience}
-- Primary Goal: ${context.primaryGoal}
-
-This context should inform your evaluation criteria and recommendations.
-` : '';
-
-    const industrySection = industryPrompt ? `
-INDUSTRY-SPECIFIC EVALUATION CRITERIA:
-${industryPrompt}
-
-Apply these industry-specific considerations in your analysis.
-` : '';
-
     return `
-You are an expert marketing analyst and web performance specialist evaluating a website. Please analyze the following comprehensive website data and provide your assessment.
+You are an expert marketing analyst and web performance specialist evaluating a website. 
 
-${contextSection}
+STEP 1: BUSINESS CONTEXT ANALYSIS
+First, analyze the website data below to determine:
+- Industry type and business model
+- Target audience and customer segments  
+- Primary business goals and objectives
+- Appropriate industry standards and best practices
+
+STEP 2: DETAILED EVALUATION
+Then use this context to evaluate the specific area requested.
 
 WEBSITE TECHNICAL DATA:
 Website URL: ${websiteData.url}
@@ -257,8 +161,6 @@ ${seoData}
 
 ${accessibilityData}
 
-${industrySection}
-
 CONTENT ANALYSIS:
 Key Content: ${this.summarizeContent(websiteData.html, 2000)}
 
@@ -266,7 +168,7 @@ EVALUATION TASK:
 ${specificPrompt}
 
 Please provide a comprehensive analysis considering:
-1. The business context and industry standards
+1. The business context and industry standards you identified
 2. Target audience expectations and needs  
 3. Industry-specific best practices
 4. Current performance metrics and technical factors
@@ -274,6 +176,12 @@ Please provide a comprehensive analysis considering:
 
 Respond in the following JSON format with detailed, actionable insights:
 {
+  "context": {
+    "industry": "<detected industry>",
+    "businessType": "<business model type>",
+    "targetAudience": "<primary target audience>",
+    "primaryGoal": "<main business objective>"
+  },
   "score": <number between 0-100>,
   "insights": [
     "Primary insight with specific details",
@@ -293,7 +201,7 @@ Respond in the following JSON format with detailed, actionable insights:
 
 Ensure all insights and recommendations are:
 - Specific and actionable
-- Contextually relevant to the industry and business type
+- Contextually relevant to the industry and business type you identified
 - Backed by observable data from the website analysis
 - Prioritized by potential impact and implementation difficulty
 
@@ -304,7 +212,14 @@ Make sure your response is valid JSON and nothing else.
   protected parseAIResponse(response: string): AIAnalysisResult {
     try {
       // Clean the response - remove any markdown formatting or extra text
-      const cleanedResponse = response.replace(/```json\n?|\n?```/g, '').trim();
+      let cleanedResponse = response.replace(/```json\n?|\n?```/g, '').trim();
+      
+      // Handle potential markdown formatting or extra text
+      const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanedResponse = jsonMatch[0];
+      }
+      
       const parsed = JSON.parse(cleanedResponse);
       
       return {

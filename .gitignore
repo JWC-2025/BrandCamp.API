@@ -8,3 +8,4 @@ dist/
 .env.production.local
 .vercel
 .env*.local
+.anthropic_rate_limit

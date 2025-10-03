@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { WebsiteData } from '../types/audit';
 import { logger } from '../utils/logger';
 import { detectIndustry, getIndustryPrompt } from './promptTemplates';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface AIAnalysisResult {
   score: number;
@@ -309,8 +311,8 @@ Make sure your response is valid JSON and nothing else.
 // Claude AI Service Implementation
 export class ClaudeService extends AIService {
   private anthropic: Anthropic;
-  private lastRequestTime: number = 0;
   private readonly minRequestInterval = 12000; // 12 seconds for 5 req/min limit
+  private readonly rateLimitFile = path.join(process.cwd(), '.anthropic_rate_limit');
 
   constructor(apiKey?: string) {
     super();
@@ -321,19 +323,37 @@ export class ClaudeService extends AIService {
 
   private async enforceRateLimit(): Promise<void> {
     const now = Date.now();
-    const timeSinceLastRequest = now - this.lastRequestTime;
+    let lastRequestTime = 0;
+    
+    // Read last request time from file (shared across instances)
+    try {
+      if (fs.existsSync(this.rateLimitFile)) {
+        const data = fs.readFileSync(this.rateLimitFile, 'utf8');
+        lastRequestTime = parseInt(data, 10) || 0;
+      }
+    } catch (error) {
+      logger.debug('[ANTHROPIC_RATE_LIMIT] Could not read rate limit file, proceeding');
+    }
+    
+    const timeSinceLastRequest = now - lastRequestTime;
     
     if (timeSinceLastRequest < this.minRequestInterval) {
       const waitTime = this.minRequestInterval - timeSinceLastRequest;
-      logger.debug(`[ANTHROPIC_RATE_LIMIT] Enforcing rate limit`, {
+      logger.warn(`[ANTHROPIC_RATE_LIMIT] Enforcing rate limit`, {
         waitTimeMs: waitTime,
         minIntervalMs: this.minRequestInterval,
-        timeSinceLastMs: timeSinceLastRequest
+        timeSinceLastMs: timeSinceLastRequest,
+        lastRequestTime: new Date(lastRequestTime).toISOString()
       });
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
-    this.lastRequestTime = Date.now();
+    // Write current time to file
+    try {
+      fs.writeFileSync(this.rateLimitFile, Date.now().toString(), 'utf8');
+    } catch (error) {
+      logger.warn('[ANTHROPIC_RATE_LIMIT] Could not write rate limit file:', error);
+    }
   }
 
   protected async makeAIRequest(prompt: string): Promise<string> {
@@ -358,14 +378,14 @@ export class ClaudeService extends AIService {
           requestId,
           attempt: attempt + 1,
           maxRetries,
-          model: "claude-3-5-haiku-20241022",
-          maxTokens: 3000,
+          model: "claude-3-5-haiku",
+          maxTokens: 4000,
           temperature: 0.3
         });
         
         const message = await this.anthropic.messages.create({
-          model: "claude-3-5-haiku-20241022",
-          max_tokens: 3000, // Reduced to help with rate limits
+          model: "claude-3-5-haiku",
+          max_tokens: 4000, // Reduced to help with rate limits
           temperature: 0.3,
           messages: [
             {

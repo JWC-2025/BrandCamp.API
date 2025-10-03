@@ -3,8 +3,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { WebsiteData } from '../types/audit';
 import { logger } from '../utils/logger';
 import { detectIndustry, getIndustryPrompt } from './promptTemplates';
-import * as fs from 'fs';
-import * as path from 'path';
 
 export interface AIAnalysisResult {
   score: number;
@@ -89,7 +87,10 @@ export abstract class AIService {
     targetAudience: string;
     primaryGoal: string;
   }> {
+    const startTime = Date.now();
     try {
+      logger.warn(`[PRELIMINARY_ANALYSIS_START] Starting preliminary analysis for ${websiteData.url}`);
+      
       const preliminaryPrompt = `
       Analyze this website for: 1. Industry 2. Target audience 3. Primary goal
       
@@ -102,16 +103,39 @@ export abstract class AIService {
       {"industry":"","businessType":"","targetAudience":"","primaryGoal":""}
       `;
       
+      logger.debug(`[PRELIMINARY_ANALYSIS] Making AI request for preliminary analysis`);
       const response = await this.makeAIRequest(preliminaryPrompt);
-      const parsed = JSON.parse(response.replace(/```json\n?|\n?```/g, '').trim());
+      logger.debug(`[PRELIMINARY_ANALYSIS] Received response, parsing JSON`);
       
-      return {
+      // More robust JSON parsing with better error handling
+      let cleanedResponse = response.replace(/```json\n?|\n?```/g, '').trim();
+      
+      // Handle potential markdown formatting or extra text
+      const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanedResponse = jsonMatch[0];
+      }
+      
+      const parsed = JSON.parse(cleanedResponse);
+      
+      const result = {
         industry: parsed.industry || detectIndustry(websiteData),
         businessType: parsed.businessType || 'general',
         targetAudience: parsed.targetAudience || 'general audience',
         primaryGoal: parsed.primaryGoal || 'business objective'
       };
-    } catch {
+      
+      const analysisTime = Date.now() - startTime;
+      logger.warn(`[PRELIMINARY_ANALYSIS_SUCCESS] Preliminary analysis completed in ${analysisTime}ms`, result);
+      
+      return result;
+    } catch (error) {
+      const analysisTime = Date.now() - startTime;
+      logger.warn(`[PRELIMINARY_ANALYSIS_ERROR] Preliminary analysis failed after ${analysisTime}ms, using fallback`, {
+        error: (error as Error).message,
+        url: websiteData.url
+      });
+      
       // Fallback to keyword-based detection
       return {
         industry: detectIndustry(websiteData),
@@ -312,7 +336,7 @@ Make sure your response is valid JSON and nothing else.
 export class ClaudeService extends AIService {
   private anthropic: Anthropic;
   private readonly minRequestInterval = 12000; // 12 seconds for 5 req/min limit
-  private readonly rateLimitFile = path.join(process.cwd(), '.anthropic_rate_limit');
+  private static lastRequestTime = 0;
 
   constructor(apiKey?: string) {
     super();
@@ -323,19 +347,8 @@ export class ClaudeService extends AIService {
 
   private async enforceRateLimit(): Promise<void> {
     const now = Date.now();
-    let lastRequestTime = 0;
     
-    // Read last request time from file (shared across instances)
-    try {
-      if (fs.existsSync(this.rateLimitFile)) {
-        const data = fs.readFileSync(this.rateLimitFile, 'utf8');
-        lastRequestTime = parseInt(data, 10) || 0;
-      }
-    } catch (error) {
-      logger.debug('[ANTHROPIC_RATE_LIMIT] Could not read rate limit file, proceeding');
-    }
-    
-    const timeSinceLastRequest = now - lastRequestTime;
+    const timeSinceLastRequest = now - ClaudeService.lastRequestTime;
     
     if (timeSinceLastRequest < this.minRequestInterval) {
       const waitTime = this.minRequestInterval - timeSinceLastRequest;
@@ -343,17 +356,12 @@ export class ClaudeService extends AIService {
         waitTimeMs: waitTime,
         minIntervalMs: this.minRequestInterval,
         timeSinceLastMs: timeSinceLastRequest,
-        lastRequestTime: new Date(lastRequestTime).toISOString()
+        lastRequestTime: new Date(ClaudeService.lastRequestTime).toISOString()
       });
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
-    // Write current time to file
-    try {
-      fs.writeFileSync(this.rateLimitFile, Date.now().toString(), 'utf8');
-    } catch (error) {
-      logger.warn('[ANTHROPIC_RATE_LIMIT] Could not write rate limit file:', error);
-    }
+    ClaudeService.lastRequestTime = Date.now();
   }
 
   protected async makeAIRequest(prompt: string): Promise<string> {

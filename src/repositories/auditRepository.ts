@@ -15,6 +15,7 @@ export interface AuditRecord {
   error_message?: string;
   request_data?: AuditRequest;
   result_data?: AuditResult;
+  score?: number;
 }
 
 export class AuditRepository {
@@ -81,6 +82,7 @@ export class AuditRepository {
           status = 'completed',
           result_data = ${JSON.stringify(result)},
           blob_url = ${blobUrl || null},
+          score = ${result.overallScore},
           completed_at = NOW(),
           updated_at = NOW()
         WHERE id = ${id}
@@ -164,6 +166,24 @@ export class AuditRepository {
     }
   }
 
+  async hasProcessingAudits(): Promise<boolean> {
+    try {
+      const result = await this.sql`
+        SELECT COUNT(*) as count
+        FROM audit_requests 
+        WHERE status = 'processing'
+        LIMIT 1
+      `;
+      
+      const count = parseInt(result[0].count);
+      logger.debug(`Found ${count} processing audits`);
+      return count > 0;
+    } catch (error) {
+      logger.error('Error checking for processing audits:', error as Error);
+      throw error;
+    }
+  }
+
   private mapRowToRecord(row: any): AuditRecord {
     return {
       id: row.id,
@@ -178,6 +198,7 @@ export class AuditRepository {
       error_message: row.error_message,
       request_data: row.request_data,
       result_data: row.result_data,
+      score: row.score,
     };
   }
 }

@@ -33,29 +33,37 @@ export const createAudit = async (
     const auditId = await auditRepository.create(auditRequest);
     logger.info(`[AUDIT_DB] Audit record created successfully with ID: ${auditId}`);
 
-    // Queue the audit job for background processing
-    const jobData: AuditJobData = {
-      auditId,
-      auditRequest,
-    };
+    // Check if there are any audits currently processing
+    const hasProcessingAudits = await auditRepository.hasProcessingAudits();
+    
+    if (hasProcessingAudits) {
+      logger.info(`[AUDIT_QUEUE] Audits currently processing, new audit ${auditId} will remain pending until processing completes`);
+    } else {
+      // Queue the audit job for background processing
+      const jobData: AuditJobData = {
+        auditId,
+        auditRequest,
+      };
 
-    logger.debug(`[AUDIT_QUEUE] Adding audit job to queue`, {
-      auditId,
-      url: auditRequest.url,
-      attempts: 3,
-      backoff: 'exponential'
-    });
+      logger.debug(`[AUDIT_QUEUE] No processing audits found, adding audit job to queue`, {
+        auditId,
+        url: auditRequest.url,
+        attempts: 3,
+        backoff: 'exponential'
+      });
 
-    await auditQueue.add('process-audit', jobData, {
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 2000,
-      },
-    });
+      await auditQueue.add('process-audit', jobData, {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+      });
+      
+      logger.info(`[AUDIT_QUEUE] Audit job queued successfully for ID: ${auditId}`);
+    }
 
     const processingTime = Date.now() - startTime;
-    logger.info(`[AUDIT_QUEUE] Audit job queued successfully for ID: ${auditId} (processing time: ${processingTime}ms)`);
 
     // Return immediate response
     const response: AuditSubmissionResponse = {
@@ -206,6 +214,7 @@ export const getAllAudits = async (
         url: record.url,
         websiteName: extractWebsiteNameFromUrl(record.url),
         status: record.status,
+        score: record.score,
         format: record.format,
         includeScreenshot: record.include_screenshot,
         createdAt: record.created_at.toISOString(),

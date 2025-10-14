@@ -9,7 +9,8 @@ export const runMigrations = async (): Promise<void> => {
     
     const migrations = [
       '001_create_audit_requests.sql',
-      '002_update_google_drive_to_blob_url.sql'
+      '002_update_google_drive_to_blob_url.sql',
+      '003_add_score_column.sql'
     ];
     
     for (const migration of migrations) {

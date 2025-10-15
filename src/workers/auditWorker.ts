@@ -188,9 +188,29 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
   }
 };
 
-export const setupAuditWorker = (queue: Bull.Queue): void => {
+const cleanupStaleAudits = async (): Promise<void> => {
+  try {
+    logger.info('[AUDIT_WORKER_CLEANUP] Checking for stale processing audits...');
+    const failedCount = await auditRepository.failStaleProcessingAudits(30); // 30 minutes timeout
+    if (failedCount > 0) {
+      logger.warn(`[AUDIT_WORKER_CLEANUP] Failed ${failedCount} stale processing audits (timeout)`);
+    } else {
+      logger.debug('[AUDIT_WORKER_CLEANUP] No stale processing audits found');
+    }
+  } catch (error) {
+    logger.error('[AUDIT_WORKER_CLEANUP] Error during stale audit cleanup:', error as Error);
+  }
+};
+
+export const setupAuditWorker = async (queue: Bull.Queue): Promise<void> => {
+  // Clean up any stale processing audits on startup
+  await cleanupStaleAudits();
+  
   // Process audits one at a time to ensure sequential processing
   queue.process('process-audit', 1, processAudit);
   
-  logger.info('Audit worker setup completed with sequential processing (concurrency: 1)');
+  // Set up periodic cleanup every 10 minutes
+  setInterval(cleanupStaleAudits, 10 * 60 * 1000);
+  
+  logger.info('Audit worker setup completed with sequential processing (concurrency: 1) and stale audit cleanup');
 };

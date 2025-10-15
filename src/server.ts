@@ -16,7 +16,7 @@ async function startServer() {
     await runMigrations();
     
     // Setup queue worker
-    setupAuditWorker(auditQueue);
+    await setupAuditWorker(auditQueue);
     
     // Start HTTP server
     const server = app.listen(PORT, () => {

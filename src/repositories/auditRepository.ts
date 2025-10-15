@@ -184,6 +184,69 @@ export class AuditRepository {
     }
   }
 
+  async findStaleProcessingAudits(maxAgeMinutes: number = 30): Promise<AuditRecord[]> {
+    try {
+      const result = await this.sql`
+        SELECT * FROM audit_requests 
+        WHERE status = 'processing' 
+          AND updated_at < NOW() - INTERVAL '${maxAgeMinutes} minutes'
+        ORDER BY updated_at ASC
+      `;
+      
+      return result.map(row => this.mapRowToRecord(row));
+    } catch (error) {
+      logger.error('Error finding stale processing audits:', error as Error);
+      throw error;
+    }
+  }
+
+  async failStaleProcessingAudits(maxAgeMinutes: number = 30): Promise<number> {
+    try {
+      const result = await this.sql`
+        UPDATE audit_requests 
+        SET 
+          status = 'failed',
+          error_message = 'Audit timed out - processing took longer than ${maxAgeMinutes} minutes',
+          updated_at = NOW()
+        WHERE status = 'processing' 
+          AND updated_at < NOW() - INTERVAL '${maxAgeMinutes} minutes'
+        RETURNING id
+      `;
+      
+      const count = result.length;
+      if (count > 0) {
+        logger.warn(`Failed ${count} stale processing audits (timeout after ${maxAgeMinutes} minutes)`);
+      }
+      return count;
+    } catch (error) {
+      logger.error('Error failing stale processing audits:', error as Error);
+      throw error;
+    }
+  }
+
+  async resetAllProcessingAudits(): Promise<number> {
+    try {
+      const result = await this.sql`
+        UPDATE audit_requests 
+        SET 
+          status = 'pending',
+          error_message = 'Reset from processing state (manual cleanup)',
+          updated_at = NOW()
+        WHERE status = 'processing'
+        RETURNING id
+      `;
+      
+      const count = result.length;
+      if (count > 0) {
+        logger.warn(`Manually reset ${count} processing audits back to pending status`);
+      }
+      return count;
+    } catch (error) {
+      logger.error('Error resetting all processing audits:', error as Error);
+      throw error;
+    }
+  }
+
   private mapRowToRecord(row: any): AuditRecord {
     return {
       id: row.id,

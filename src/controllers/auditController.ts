@@ -5,6 +5,8 @@ import { AuditRepository } from '../repositories/auditRepository';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
 import { extractWebsiteNameFromUrl } from '../utils/urlUtils';
+import csvParser from 'csv-parser';
+import { Readable } from 'stream';
 
 const auditRepository = new AuditRepository();
 
@@ -278,6 +280,154 @@ export const getAuditDownload = async (
     });
   } catch (error) {
     logger.error(`[AUDIT_DOWNLOAD_ERROR] Failed to get audit download for ID: ${req.params.id}:`, error as Error);
+    next(error);
+  }
+};
+
+export const createBulkAudit = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const startTime = Date.now();
+  try {
+    const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
+    const userAgent = req.get('User-Agent') || 'unknown';
+
+    logger.info(`[BULK_AUDIT_REQUEST] New bulk audit request received`, {
+      clientIp,
+      userAgent,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!req.file) {
+      logger.warn(`[BULK_AUDIT_ERROR] No CSV file uploaded`);
+      const appError: AppError = new Error('CSV file is required');
+      appError.statusCode = 400;
+      appError.isOperational = true;
+      throw appError;
+    }
+
+    // Parse CSV file
+    const urls: string[] = [];
+    const csvStream = Readable.from(req.file.buffer);
+    
+    await new Promise<void>((resolve, reject) => {
+      csvStream
+        .pipe(csvParser({ headers: false }))
+        .on('data', (row: Record<string, string>) => {
+          // Get the first column value (assumes URL is in first column)
+          const url = Object.values(row)[0] as string;
+          if (url && url.trim()) {
+            const trimmedUrl = url.trim();
+            // Basic URL validation
+            if (trimmedUrl.match(/^https?:\/\/.+/)) {
+              urls.push(trimmedUrl);
+            } else {
+              logger.warn(`[BULK_AUDIT] Invalid URL skipped: ${trimmedUrl}`);
+            }
+          }
+        })
+        .on('end', () => {
+          logger.info(`[BULK_AUDIT] CSV parsing completed, found ${urls.length} valid URLs`);
+          resolve();
+        })
+        .on('error', (error: Error) => {
+          logger.error(`[BULK_AUDIT_ERROR] CSV parsing failed:`, error);
+          reject(error);
+        });
+    });
+
+    if (urls.length === 0) {
+      logger.warn(`[BULK_AUDIT_ERROR] No valid URLs found in CSV file`);
+      const appError: AppError = new Error('No valid URLs found in the CSV file');
+      appError.statusCode = 400;
+      appError.isOperational = true;
+      throw appError;
+    }
+
+    // Create audit records and queue jobs for each URL
+    const auditIds: string[] = [];
+    
+    for (const url of urls) {
+      try {
+        const auditRequest: AuditRequest = {
+          url,
+          format: 'json',
+          includeScreenshot: false
+        };
+
+        // Create audit record in database
+        const auditId = await auditRepository.create(auditRequest);
+        auditIds.push(auditId);
+
+        logger.debug(`[BULK_AUDIT] Created audit record for ${url} with ID: ${auditId}`);
+      } catch (error) {
+        logger.error(`[BULK_AUDIT_ERROR] Failed to create audit for URL ${url}:`, error as Error);
+        // Continue with other URLs even if one fails
+      }
+    }
+
+    // Check if there are any audits currently processing
+    const hasProcessingAudits = await auditRepository.hasProcessingAudits();
+    
+    if (!hasProcessingAudits) {
+      // Queue jobs for the created audits
+      for (const auditId of auditIds) {
+        try {
+          const auditRecord = await auditRepository.findById(auditId);
+          if (auditRecord) {
+            const jobData: AuditJobData = {
+              auditId,
+              auditRequest: {
+                url: auditRecord.url,
+                format: auditRecord.format,
+                includeScreenshot: auditRecord.include_screenshot
+              },
+            };
+
+            await auditQueue.add('process-audit', jobData, {
+              attempts: 3,
+              backoff: {
+                type: 'exponential',
+                delay: 2000,
+              },
+            });
+
+            logger.debug(`[BULK_AUDIT] Queued audit job for ID: ${auditId}`);
+          }
+        } catch (error) {
+          logger.error(`[BULK_AUDIT_ERROR] Failed to queue audit ${auditId}:`, error as Error);
+        }
+      }
+      logger.info(`[BULK_AUDIT] Successfully queued ${auditIds.length} audit jobs`);
+    } else {
+      logger.info(`[BULK_AUDIT] Audits currently processing, ${auditIds.length} new audits will remain pending`);
+    }
+
+    const processingTime = Date.now() - startTime;
+
+    // Return response with all created audit IDs
+    const response = {
+      success: true,
+      message: `Bulk audit request processed successfully. ${auditIds.length} audits created from ${urls.length} URLs.`,
+      auditIds,
+      totalUrls: urls.length,
+      createdAudits: auditIds.length,
+      statusUrls: auditIds.map(id => `${req.protocol}://${req.get('host')}/api/audit/${id}/status`)
+    };
+
+    logger.info(`[BULK_AUDIT] Bulk audit request completed`, {
+      totalUrls: urls.length,
+      createdAudits: auditIds.length,
+      processingTime,
+      clientIp
+    });
+
+    res.status(202).json(response);
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    logger.error(`[BULK_AUDIT_ERROR] Bulk audit submission failed after ${processingTime}ms:`, error as Error);
     next(error);
   }
 };

@@ -15,41 +15,6 @@ const reportGenerator = new ReportGenerator();
 const blobStorageService = new BlobStorageService();
 const auditRepository = new AuditRepository();
 
-const queueNextPendingAudit = async (): Promise<void> => {
-  try {
-    // Check if there are any pending audits
-    const pendingAudits = await auditRepository.findPendingAudits(1);
-    
-    if (pendingAudits.length > 0) {
-      const nextAudit = pendingAudits[0];
-      
-      logger.info(`[AUDIT_WORKER_QUEUE_NEXT] Queuing next pending audit`, {
-        auditId: nextAudit.id,
-        url: nextAudit.url,
-        createdAt: nextAudit.created_at.toISOString()
-      });
-      
-      const jobData: AuditJobData = {
-        auditId: nextAudit.id,
-        auditRequest: nextAudit.request_data!,
-      };
-
-      await auditQueue.add('process-audit', jobData, {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 2000,
-        },
-      });
-      
-      logger.info(`[AUDIT_WORKER_QUEUE_NEXT] Successfully queued next audit ${nextAudit.id}`);
-    } else {
-      logger.debug(`[AUDIT_WORKER_QUEUE_NEXT] No pending audits found to queue`);
-    }
-  } catch (error) {
-    logger.error(`[AUDIT_WORKER_QUEUE_NEXT] Error queuing next pending audit:`, error as Error);
-  }
-};
 
 export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
   const { auditId, auditRequest } = job.data;
@@ -205,8 +170,6 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
       completedAt: new Date().toISOString()
     });
 
-    // Queue the next pending audit if any
-    await queueNextPendingAudit();
 
   } catch (error) {
     const totalProcessingTime = Date.now() - processingStartTime;
@@ -220,15 +183,14 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     await auditRepository.markAsFailed(auditId, errorMessage);
     
-    // Queue the next pending audit if any, even after failure
-    await queueNextPendingAudit();
     
     throw error;
   }
 };
 
 export const setupAuditWorker = (queue: Bull.Queue): void => {
-  queue.process('process-audit', 5, processAudit);
+  // Process audits one at a time to ensure sequential processing
+  queue.process('process-audit', 1, processAudit);
   
-  logger.info('Audit worker setup completed');
+  logger.info('Audit worker setup completed with sequential processing (concurrency: 1)');
 };

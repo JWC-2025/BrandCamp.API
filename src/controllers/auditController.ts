@@ -35,35 +35,28 @@ export const createAudit = async (
     const auditId = await auditRepository.create(auditRequest);
     logger.info(`[AUDIT_DB] Audit record created successfully with ID: ${auditId}`);
 
-    // Check if there are any audits currently processing
-    const hasProcessingAudits = await auditRepository.hasProcessingAudits();
+    // Queue the audit job for background processing
+    const jobData: AuditJobData = {
+      auditId,
+      auditRequest,
+    };
+
+    logger.debug(`[AUDIT_QUEUE] Adding audit job to queue`, {
+      auditId,
+      url: auditRequest.url,
+      attempts: 3,
+      backoff: 'exponential'
+    });
+
+    await auditQueue.add('process-audit', jobData, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 2000,
+      },
+    });
     
-    if (hasProcessingAudits) {
-      logger.info(`[AUDIT_QUEUE] Audits currently processing, new audit ${auditId} will remain pending until processing completes`);
-    } else {
-      // Queue the audit job for background processing
-      const jobData: AuditJobData = {
-        auditId,
-        auditRequest,
-      };
-
-      logger.debug(`[AUDIT_QUEUE] No processing audits found, adding audit job to queue`, {
-        auditId,
-        url: auditRequest.url,
-        attempts: 3,
-        backoff: 'exponential'
-      });
-
-      await auditQueue.add('process-audit', jobData, {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 2000,
-        },
-      });
-      
-      logger.info(`[AUDIT_QUEUE] Audit job queued successfully for ID: ${auditId}`);
-    }
+    logger.info(`[AUDIT_QUEUE] Audit job queued successfully for ID: ${auditId}`);
 
     const processingTime = Date.now() - startTime;
 
@@ -346,7 +339,7 @@ export const createBulkAudit = async (
       throw appError;
     }
 
-    // Create audit records and queue jobs for each URL
+    // Create audit records for each URL
     const auditIds: string[] = [];
     
     for (const url of urls) {
@@ -357,7 +350,7 @@ export const createBulkAudit = async (
           includeScreenshot: false
         };
 
-        // Create audit record in database
+        // Create audit record in database with pending status
         const auditId = await auditRepository.create(auditRequest);
         auditIds.push(auditId);
 
@@ -368,42 +361,36 @@ export const createBulkAudit = async (
       }
     }
 
-    // Check if there are any audits currently processing
-    const hasProcessingAudits = await auditRepository.hasProcessingAudits();
-    
-    if (!hasProcessingAudits) {
-      // Queue jobs for the created audits
-      for (const auditId of auditIds) {
-        try {
-          const auditRecord = await auditRepository.findById(auditId);
-          if (auditRecord) {
-            const jobData: AuditJobData = {
-              auditId,
-              auditRequest: {
-                url: auditRecord.url,
-                format: auditRecord.format,
-                includeScreenshot: auditRecord.include_screenshot
-              },
-            };
+    // Queue jobs for all created audits (they will be processed sequentially by the worker)
+    for (const auditId of auditIds) {
+      try {
+        const auditRecord = await auditRepository.findById(auditId);
+        if (auditRecord) {
+          const jobData: AuditJobData = {
+            auditId,
+            auditRequest: {
+              url: auditRecord.url,
+              format: auditRecord.format,
+              includeScreenshot: auditRecord.include_screenshot
+            },
+          };
 
-            await auditQueue.add('process-audit', jobData, {
-              attempts: 3,
-              backoff: {
-                type: 'exponential',
-                delay: 2000,
-              },
-            });
+          await auditQueue.add('process-audit', jobData, {
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 2000,
+            },
+          });
 
-            logger.debug(`[BULK_AUDIT] Queued audit job for ID: ${auditId}`);
-          }
-        } catch (error) {
-          logger.error(`[BULK_AUDIT_ERROR] Failed to queue audit ${auditId}:`, error as Error);
+          logger.debug(`[BULK_AUDIT] Queued audit job for ID: ${auditId}`);
         }
+      } catch (error) {
+        logger.error(`[BULK_AUDIT_ERROR] Failed to queue audit ${auditId}:`, error as Error);
       }
-      logger.info(`[BULK_AUDIT] Successfully queued ${auditIds.length} audit jobs`);
-    } else {
-      logger.info(`[BULK_AUDIT] Audits currently processing, ${auditIds.length} new audits will remain pending`);
     }
+    
+    logger.info(`[BULK_AUDIT] Successfully queued ${auditIds.length} audit jobs for sequential processing`);
 
     const processingTime = Date.now() - startTime;
 

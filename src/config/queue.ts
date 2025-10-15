@@ -95,26 +95,50 @@ const initializeQueue = async () => {
       },
     });
   } else {
-    // Fallback: Create a simple in-memory queue
+    // Fallback: Create a simple in-memory queue with sequential processing
+    const jobQueue: any[] = [];
+    let isProcessing = false;
+
+    const processNextJob = async () => {
+      if (isProcessing || jobQueue.length === 0) return;
+      
+      isProcessing = true;
+      const job = jobQueue.shift();
+      
+      try {
+        logger.warn(`Processing job sequentially (no Redis): ${job.name}`);
+        const { processAudit } = await import('../workers/auditWorker');
+        await processAudit(job);
+      } catch (error) {
+        logger.error(`In-memory job failed:`, error);
+      } finally {
+        isProcessing = false;
+        // Process next job if available
+        setTimeout(processNextJob, 0);
+      }
+    };
+
     auditQueue = {
       add: async (name: string, data: any) => {
-        logger.warn(`Processing job immediately (no Redis): ${name}`);
-        // Process immediately since we don't have Redis
-        const { processAudit } = await import('../workers/auditWorker');
         const mockJob = {
           id: Date.now().toString(),
+          name,
           data,
           opts: {},
           attemptsMade: 0,
           queue: null,
           progress: async () => {},
         } as any;
-        setTimeout(() => processAudit(mockJob), 0);
-        return { id: Date.now().toString() };
+        
+        jobQueue.push(mockJob);
+        logger.warn(`Job queued (in-memory): ${name}, queue length: ${jobQueue.length}`);
+        
+        // Start processing if not already running
+        setTimeout(processNextJob, 0);
+        return { id: mockJob.id };
       },
       process: (name: string) => {
         logger.info(`Registered processor for ${name} (in-memory mode)`);
-        // Store processor for later use if needed
       },
       close: () => Promise.resolve(),
       on: () => {},

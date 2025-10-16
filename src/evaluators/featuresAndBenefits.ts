@@ -1,15 +1,15 @@
 import { WebsiteData } from '../types/audit';
 import { Evaluator, EvaluationResult } from '../types/evaluator';
-import { QueuedClaudeService, MockAIService } from '../services/aiService';
+import { ClaudeService, MockAIService } from '../services/aiService';
 import { config } from '../config/environment';
 
 export class FeaturesAndBenefitsEvaluator implements Evaluator {
   name = 'Features and Benefits';
-  private aiService: QueuedClaudeService | MockAIService;
+  private aiService: ClaudeService | MockAIService;
 
   constructor() {
     this.aiService = config.ai.anthropicApiKey 
-      ? new QueuedClaudeService(config.ai.anthropicApiKey)
+      ? new ClaudeService(config.ai.anthropicApiKey)
       : new MockAIService();
   }
 
@@ -33,7 +33,7 @@ Focus on:
 Rate the features and benefits presentation on a scale of 0-100.
     `;
 
-    const result = this.aiService instanceof QueuedClaudeService && websiteData.screenshot
+    const result = this.aiService instanceof ClaudeService && websiteData.screenshot
       ? await this.aiService.analyzeWithScreenshot(websiteData, this.name, prompt)
       : await this.aiService.analyzeWebsite(websiteData, this.name, prompt);
     

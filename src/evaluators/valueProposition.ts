@@ -1,17 +1,17 @@
 import { WebsiteData } from '../types/audit';
 import { Evaluator, EvaluationResult } from '../types/evaluator';
-import { QueuedClaudeService, MockAIService } from '../services/aiService';
+import { ClaudeService, MockAIService } from '../services/aiService';
 import { config } from '../config/environment';
 import { detectIndustry, getIndustryPrompt } from '../services/promptTemplates';
 
 export class ValuePropositionEvaluator implements Evaluator {
   name = 'Value Proposition';
-  private aiService: QueuedClaudeService | MockAIService;
+  private aiService: ClaudeService | MockAIService;
 
   constructor() {
-    // Use QueuedClaude service in production, MockAI in development without API key
+    // Use Claude service in production, MockAI in development without API key
     this.aiService = config.ai.anthropicApiKey 
-      ? new QueuedClaudeService(config.ai.anthropicApiKey)
+      ? new ClaudeService(config.ai.anthropicApiKey)
       : new MockAIService();
   }
 
@@ -56,7 +56,7 @@ Rate the value proposition strength on a scale of 0-100, considering both genera
     `;
 
     // Use screenshot analysis if available and using QueuedClaude
-    const result = this.aiService instanceof QueuedClaudeService && websiteData.screenshot
+    const result = this.aiService instanceof ClaudeService && websiteData.screenshot
       ? await this.aiService.analyzeWithScreenshot(websiteData, this.name, enhancedPrompt)
       : await this.aiService.analyzeWebsite(websiteData, this.name, enhancedPrompt);
     

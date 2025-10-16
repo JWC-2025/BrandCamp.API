@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "dist/server.js",
   "scripts": {
-    "build": "npx playwright install-deps && npx playwright install chromium && tsc",
-    "postinstall": "npx playwright install-deps && npx playwright install chromium",
+    "build": "tsc",
+    "postinstall": "",
     "start": "node dist/server.js",
     "dev": "nodemon --exec ts-node src/server.ts",
     "lint": "eslint src/**/*.ts",
@@ -27,7 +27,6 @@
   "description": "Marketing Agency Website Audit Platform API - Evaluates websites across multiple criteria using AI and generates reports for marketing agencies",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
-    "@playwright/test": "^1.56.0",
     "@types/multer": "^2.0.0",
     "@vercel/blob": "^1.1.1",
     "axios": "^1.11.0",
@@ -45,8 +44,8 @@
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "openai": "^5.10.2",
-    "playwright": "^1.56.0",
     "postgres": "^3.4.7",
+    "puppeteer": "^24.25.0",
     "redis": "^5.8.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",

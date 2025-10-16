@@ -26,6 +26,7 @@
   "description": "Marketing Agency Website Audit Platform API - Evaluates websites across multiple criteria using AI and generates reports for marketing agencies",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
+    "@playwright/test": "^1.56.0",
     "@types/multer": "^2.0.0",
     "@vercel/blob": "^1.1.1",
     "axios": "^1.11.0",
@@ -43,6 +44,7 @@
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "openai": "^5.10.2",
+    "playwright": "^1.56.0",
     "postgres": "^3.4.7",
     "redis": "^5.8.1",
     "swagger-jsdoc": "^6.2.8",

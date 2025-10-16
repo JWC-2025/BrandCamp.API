@@ -13,43 +13,87 @@ export class WebsiteAnalyzer {
   }
 
   private async getBrowser(): Promise<Browser> {
-    if (!this.browser) {
-      // Use serverless-optimized Chrome for Vercel
+    if (!this.browser || this.browser.isConnected() === false) {
+      // Clean up any existing browser first
+      if (this.browser) {
+        try {
+          await this.browser.close();
+        } catch (error) {
+          logger.warn('Failed to close existing browser:', error as Error);
+        }
+        this.browser = null;
+      }
+
       const isProduction = process.env.NODE_ENV === 'production';
+      const MAX_LAUNCH_RETRIES = 3;
       
-      if (isProduction) {
-        // Serverless environment (Vercel)
-        this.browser = await puppeteer.launch({
-          args: chromium.args,
-          defaultViewport: { width: 1920, height: 1080 },
-          executablePath: await chromium.executablePath(),
-          headless: true,
-        });
-      } else {
-        // Local development - try to use local Chrome
-        this.browser = await puppeteer.launch({
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor'
-          ]
-        });
+      for (let attempt = 1; attempt <= MAX_LAUNCH_RETRIES; attempt++) {
+        try {
+          if (isProduction) {
+            // Serverless environment (Vercel)
+            this.browser = await puppeteer.launch({
+              args: [
+                ...chromium.args,
+                '--single-process', // Prevent multiple processes
+                '--no-zygote',
+                '--disable-dev-shm-usage'
+              ],
+              defaultViewport: { width: 1920, height: 1080 },
+              executablePath: await chromium.executablePath(),
+              headless: true,
+            });
+          } else {
+            // Local development - try to use local Chrome
+            this.browser = await puppeteer.launch({
+              headless: true,
+              args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
+                '--single-process' // Prevent ETXTBSY errors
+              ]
+            });
+          }
+          
+          logger.warn(`Browser launched successfully on attempt ${attempt}`);
+          break;
+          
+        } catch (error) {
+          const errorMessage = (error as Error).message;
+          logger.warn(`Browser launch attempt ${attempt}/${MAX_LAUNCH_RETRIES} failed:`, errorMessage);
+          
+          if (attempt === MAX_LAUNCH_RETRIES) {
+            throw new Error(`Failed to launch browser after ${MAX_LAUNCH_RETRIES} attempts: ${errorMessage}`);
+          }
+          
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
       }
     }
+    
+    if (!this.browser) {
+      throw new Error('Browser failed to initialize');
+    }
+    
     return this.browser;
   }
 
   async close(): Promise<void> {
     if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
+      try {
+        await this.browser.close();
+      } catch (error) {
+        logger.warn('Error closing browser:', error as Error);
+      } finally {
+        this.browser = null;
+      }
     }
   }
 

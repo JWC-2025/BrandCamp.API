@@ -286,7 +286,7 @@ export class ClaudeService extends AIService {
     const requestId = Math.random().toString(36).substring(2, 15);
     const requestStartTime = Date.now();
     
-    logger.debug(`[ANTHROPIC_REQUEST_START] Starting Claude API request`, {
+    logger.warn(`[ANTHROPIC_REQUEST_START] Starting Claude API request`, {
       requestId,
       promptLength: prompt.length,
       maxRetries,
@@ -296,9 +296,9 @@ export class ClaudeService extends AIService {
     while (attempt < maxRetries) {
       const attemptStartTime = Date.now();
       try {
-        await this.enforceRateLimit();
+       // await this.enforceRateLimit();
         
-        logger.debug(`[ANTHROPIC_API_CALL] Making API call to Claude`, {
+        logger.warn(`[ANTHROPIC_API_CALL] Making API call to Claude`, {
           requestId,
           attempt: attempt + 1,
           maxRetries,

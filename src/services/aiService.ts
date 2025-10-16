@@ -253,12 +253,83 @@ export class ClaudeService extends AIService {
   private anthropic: Anthropic;
   private readonly minRequestInterval = 12000; // 12 seconds for 5 req/min limit
   private static lastRequestTime = 0;
+  private static healthStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+  private static lastHealthCheck = 0;
+  private static consecutiveFailures = 0;
 
   constructor(apiKey?: string) {
     super();
     this.anthropic = new Anthropic({
       apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
     });
+  }
+
+  /**
+   * Perform health check on Anthropic API
+   */
+  private async performHealthCheck(): Promise<boolean> {
+    const now = Date.now();
+    const HEALTH_CHECK_INTERVAL = 60000; // 1 minute
+    
+    // Skip if recently checked
+    if (now - ClaudeService.lastHealthCheck < HEALTH_CHECK_INTERVAL) {
+      return ClaudeService.healthStatus !== 'unhealthy';
+    }
+    
+    ClaudeService.lastHealthCheck = now;
+    const healthCheckId = Math.random().toString(36).substring(2, 8);
+    
+    try {
+      logger.info(`[ANTHROPIC_HEALTH_CHECK] Starting health check`, {
+        healthCheckId,
+        currentStatus: ClaudeService.healthStatus,
+        consecutiveFailures: ClaudeService.consecutiveFailures
+      });
+      
+      const startTime = Date.now();
+      const message = await this.anthropic.messages.create({
+        model: "claude-haiku-4-5",
+        max_tokens: 10,
+        temperature: 0,
+        messages: [{ role: "user", content: "ping" }],
+      });
+      
+      const responseTime = Date.now() - startTime;
+      const isHealthy = message.content[0]?.type === 'text';
+      
+      if (isHealthy) {
+        ClaudeService.healthStatus = responseTime > 5000 ? 'degraded' : 'healthy';
+        ClaudeService.consecutiveFailures = 0;
+        
+        logger.info(`[ANTHROPIC_HEALTH_CHECK] Health check passed`, {
+          healthCheckId,
+          status: ClaudeService.healthStatus,
+          responseTimeMs: responseTime,
+          inputTokens: message.usage?.input_tokens,
+          outputTokens: message.usage?.output_tokens
+        });
+      } else {
+        throw new Error('Invalid response format');
+      }
+      
+      return true;
+    } catch (error) {
+      ClaudeService.consecutiveFailures++;
+      
+      if (ClaudeService.consecutiveFailures >= 3) {
+        ClaudeService.healthStatus = 'unhealthy';
+      } else if (ClaudeService.consecutiveFailures >= 1) {
+        ClaudeService.healthStatus = 'degraded';
+      }
+      
+      logger.error(`[ANTHROPIC_HEALTH_CHECK] Health check failed`, error as Error, {
+        healthCheckId,
+        consecutiveFailures: ClaudeService.consecutiveFailures,
+        newStatus: ClaudeService.healthStatus
+      });
+      
+      return ClaudeService.healthStatus !== 'unhealthy';
+    }
   }
 
   private async enforceRateLimit(): Promise<void> {
@@ -272,7 +343,8 @@ export class ClaudeService extends AIService {
         waitTimeMs: waitTime,
         minIntervalMs: this.minRequestInterval,
         timeSinceLastMs: timeSinceLastRequest,
-        lastRequestTime: new Date(ClaudeService.lastRequestTime).toISOString()
+        lastRequestTime: new Date(ClaudeService.lastRequestTime).toISOString(),
+        healthStatus: ClaudeService.healthStatus
       });
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
@@ -281,35 +353,62 @@ export class ClaudeService extends AIService {
   }
 
   protected async makeAIRequest(prompt: string): Promise<string> {
-    const maxRetries = 3;
+    const maxRetries = 4; // Increased retries
     let attempt = 0;
     const requestId = Math.random().toString(36).substring(2, 15);
     const requestStartTime = Date.now();
+    
+    // Perform health check first
+    const isHealthy = await this.performHealthCheck();
     
     logger.warn(`[ANTHROPIC_REQUEST_START] Starting Claude API request`, {
       requestId,
       promptLength: prompt.length,
       maxRetries,
+      healthStatus: ClaudeService.healthStatus,
+      consecutiveFailures: ClaudeService.consecutiveFailures,
+      isHealthy,
       timestamp: new Date().toISOString()
     });
+    
+    // If unhealthy, use circuit breaker pattern
+    if (!isHealthy) {
+      logger.error(`[ANTHROPIC_CIRCUIT_BREAKER] API marked as unhealthy, rejecting request`, undefined, {
+        requestId,
+        healthStatus: ClaudeService.healthStatus,
+        consecutiveFailures: ClaudeService.consecutiveFailures
+      });
+      throw new Error(`Anthropic API is unhealthy (${ClaudeService.healthStatus}) - circuit breaker activated`);
+    }
     
     while (attempt < maxRetries) {
       const attemptStartTime = Date.now();
       try {
-       // await this.enforceRateLimit();
+        // Enable rate limiting in production
+        // await this.enforceRateLimit();
+        
+        // Dynamic model selection based on health status
+        const model = ClaudeService.healthStatus === 'degraded' 
+          ? "claude-3-5-haiku-20241022" // Faster model when degraded
+          : "claude-haiku-4-5";
+        
+        const maxTokens = ClaudeService.healthStatus === 'degraded' ? 3000 : 4000;
         
         logger.warn(`[ANTHROPIC_API_CALL] Making API call to Claude`, {
           requestId,
           attempt: attempt + 1,
           maxRetries,
-          model: "claude-haiku-4-5",
-          maxTokens: 4000,
-          temperature: 0.3
+          model,
+          maxTokens,
+          temperature: 0.3,
+          healthStatus: ClaudeService.healthStatus,
+          promptSize: `${Math.round(prompt.length / 1024)}KB`
         });
         
-        const message = await this.anthropic.messages.create({
-          model: "claude-haiku-4-5",
-          max_tokens: 4000, // Reduced to help with rate limits
+        // Add timeout wrapper
+        const apiCallPromise = this.anthropic.messages.create({
+          model,
+          max_tokens: maxTokens,
           temperature: 0.3,
           messages: [
             {
@@ -318,14 +417,32 @@ export class ClaudeService extends AIService {
             }
           ],
         });
-
+        
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('API request timeout')), 45000); // 45s timeout
+        });
+        
+        const message = await Promise.race([apiCallPromise, timeoutPromise]);
+        
+        // Validate response structure
+        if (!message || !message.content || message.content.length === 0) {
+          throw new Error('Empty response from Claude API');
+        }
+        
         const response = message.content[0];
         if (response.type !== 'text') {
-          throw new Error('Unexpected response type from Claude');
+          throw new Error(`Unexpected response type: ${response.type}`);
+        }
+        
+        if (!response.text || response.text.trim().length === 0) {
+          throw new Error('Empty text response from Claude API');
         }
 
         const attemptTime = Date.now() - attemptStartTime;
         const totalTime = Date.now() - requestStartTime;
+        
+        // Reset failure counter on success
+        ClaudeService.consecutiveFailures = 0;
         
         logger.warn(`[ANTHROPIC_REQUEST_SUCCESS] Claude API request successful`, {
           requestId,
@@ -334,43 +451,65 @@ export class ClaudeService extends AIService {
           attemptTimeMs: attemptTime,
           totalTimeMs: totalTime,
           inputTokens: message.usage?.input_tokens,
-          outputTokens: message.usage?.output_tokens
+          outputTokens: message.usage?.output_tokens,
+          tokensPerSecond: message.usage?.output_tokens ? Math.round(message.usage.output_tokens / (attemptTime / 1000)) : null,
+          healthStatus: ClaudeService.healthStatus
         });
 
         return response.text;
       } catch (error: unknown) {
         attempt++;
         const attemptTime = Date.now() - attemptStartTime;
-        const apiError = error as { error?: { type?: string; message?: string } };
+        const apiError = error as { error?: { type?: string; message?: string }; status?: number };
+        const errorMessage = apiError?.error?.message || (error as Error).message;
+        const errorType = apiError?.error?.type || 'unknown';
+        const statusCode = apiError?.status;
+        
+        // Track consecutive failures
+        ClaudeService.consecutiveFailures++;
         
         logger.warn(`[ANTHROPIC_REQUEST_ERROR] Claude API request failed`, {
           requestId,
           attempt,
           maxRetries,
           attemptTimeMs: attemptTime,
-          errorType: apiError?.error?.type || 'unknown',
-          errorMessage: apiError?.error?.message || (error as Error).message
+          errorType,
+          errorMessage,
+          statusCode,
+          consecutiveFailures: ClaudeService.consecutiveFailures,
+          healthStatus: ClaudeService.healthStatus
         });
         
-        // Check if it's a rate limit error
-        if (apiError?.error?.type === 'rate_limit_error' && attempt < maxRetries) {
-          const backoffTime = Math.pow(2, attempt) * 5000; // Exponential backoff: 5s, 10s, 20s
-          logger.warn(`[ANTHROPIC_RETRY] Rate limit hit, retrying with backoff`, {
+        // Determine if should retry
+        const isRetryableError = this.isRetryableError(error as Error, errorType, statusCode);
+        const isLastAttempt = attempt >= maxRetries;
+        
+        if (!isRetryableError || isLastAttempt) {
+          logger.error(`[ANTHROPIC_REQUEST_FAILED] Claude API request failed permanently`, error as Error, {
             requestId,
-            attempt,
-            maxRetries,
-            backoffTimeMs: backoffTime
+            finalAttempt: attempt,
+            totalTimeMs: Date.now() - requestStartTime,
+            isRetryableError,
+            isLastAttempt,
+            consecutiveFailures: ClaudeService.consecutiveFailures
           });
-          await new Promise(resolve => setTimeout(resolve, backoffTime));
-          continue;
+          throw new Error(`Claude API request failed: ${errorMessage} (attempt ${attempt}/${maxRetries})`);
         }
         
-        logger.error(`[ANTHROPIC_REQUEST_FAILED] Claude API request failed permanently`, error as Error, {
+        // Calculate backoff time
+        const baseBackoff = errorType === 'rate_limit_error' ? 10000 : 2000;
+        const backoffTime = Math.min(baseBackoff * Math.pow(2, attempt - 1), 30000); // Max 30s
+        
+        logger.warn(`[ANTHROPIC_RETRY] Retrying Claude API request`, {
           requestId,
-          finalAttempt: attempt,
-          totalTimeMs: Date.now() - requestStartTime
+          attempt,
+          maxRetries,
+          backoffTimeMs: backoffTime,
+          errorType,
+          retryReason: 'retryable_error'
         });
-        throw error;
+        
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
       }
     }
     
@@ -378,9 +517,53 @@ export class ClaudeService extends AIService {
     logger.error(`[ANTHROPIC_MAX_RETRIES] Max retries exceeded for Claude API request`, undefined, {
       requestId,
       maxRetries,
-      totalTimeMs: totalTime
+      totalTimeMs: totalTime,
+      consecutiveFailures: ClaudeService.consecutiveFailures,
+      finalHealthStatus: ClaudeService.healthStatus
     });
-    throw new Error('Max retries exceeded for Claude API request');
+    throw new Error(`Max retries (${maxRetries}) exceeded for Claude API request`);
+  }
+  
+  /**
+   * Determine if an error is retryable
+   */
+  private isRetryableError(error: Error, errorType?: string, statusCode?: number): boolean {
+    const message = error.message.toLowerCase();
+    
+    // Always retry these error types
+    if (errorType === 'rate_limit_error') return true;
+    if (errorType === 'overloaded_error') return true;
+    if (errorType === 'internal_server_error') return true;
+    
+    // Retry specific status codes
+    if (statusCode === 429 || statusCode === 502 || statusCode === 503 || statusCode === 504) return true;
+    
+    // Retry timeout and network errors
+    if (message.includes('timeout') || 
+        message.includes('network') || 
+        message.includes('connect') ||
+        message.includes('econnreset') ||
+        message.includes('socket hang up')) return true;
+    
+    // Don't retry authentication, validation, or client errors
+    if (errorType === 'authentication_error' || 
+        errorType === 'permission_error' || 
+        errorType === 'invalid_request_error' ||
+        statusCode === 400 || statusCode === 401 || statusCode === 403) return false;
+    
+    return false;
+  }
+
+  /**
+   * Get current health status for monitoring
+   */
+  static getHealthStatus() {
+    return {
+      status: ClaudeService.healthStatus,
+      consecutiveFailures: ClaudeService.consecutiveFailures,
+      lastHealthCheck: new Date(ClaudeService.lastHealthCheck).toISOString(),
+      lastRequestTime: new Date(ClaudeService.lastRequestTime).toISOString()
+    };
   }
 
   // Enhanced analysis with screenshot support
@@ -412,14 +595,14 @@ export class ClaudeService extends AIService {
       
       logger.debug(`[ANTHROPIC_SCREENSHOT_API] Making multimodal API call to Claude`, {
         requestId,
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5",
         maxTokens: 3000,
         hasImage: true,
         promptLength: fullPrompt.length
       });
       
       const message = await this.anthropic.messages.create({
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5",
         max_tokens: 3000,
         temperature: 0.3,
         messages: [
@@ -504,11 +687,11 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
       logger.debug(`[QUEUED_CLAUDE] Making direct API call`, {
         requestId,
         promptLength: prompt.length,
-        model: "claude-3-5-haiku-latest"
+        model: "claude-haiku-4-5"
       });
       
       const message = await this.anthropic.messages.create({
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5",
         max_tokens: 4000,
         temperature: 0.3,
         messages: [

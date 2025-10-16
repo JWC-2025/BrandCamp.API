@@ -302,13 +302,13 @@ export class ClaudeService extends AIService {
           requestId,
           attempt: attempt + 1,
           maxRetries,
-          model: "claude-4-5-haiku",
+          model: "claude-haiku-4-5",
           maxTokens: 4000,
           temperature: 0.3
         });
         
         const message = await this.anthropic.messages.create({
-          model: "claude-4-5-haiku",
+          model: "claude-haiku-4-5",
           max_tokens: 4000, // Reduced to help with rate limits
           temperature: 0.3,
           messages: [

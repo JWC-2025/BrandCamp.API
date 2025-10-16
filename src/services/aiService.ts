@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { WebsiteData } from '../types/audit';
 import { logger } from '../utils/logger';
+import { AIRequestQueue, AIRequestService } from './aiRequestQueue';
 
 export interface AIAnalysisResult {
   score: number;
@@ -301,13 +302,13 @@ export class ClaudeService extends AIService {
           requestId,
           attempt: attempt + 1,
           maxRetries,
-          model: "claude-3-5-haiku-latest",
+          model: "claude-4-5-haiku",
           maxTokens: 4000,
           temperature: 0.3
         });
         
         const message = await this.anthropic.messages.create({
-          model: "claude-3-5-haiku-latest",
+          model: "claude-4-5-haiku",
           max_tokens: 4000, // Reduced to help with rate limits
           temperature: 0.3,
           messages: [
@@ -474,6 +475,149 @@ export class ClaudeService extends AIService {
       // Fallback to text-only analysis
       return this.analyzeWebsite(websiteData, analysisType, prompt);
     }
+  }
+}
+
+// Queued Claude AI Service Implementation (for parallel processing)
+export class QueuedClaudeService extends AIService implements AIRequestService {
+  private anthropic: Anthropic;
+  private static globalQueue: AIRequestQueue | null = null;
+
+  constructor(apiKey?: string) {
+    super();
+    this.anthropic = new Anthropic({
+      apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
+    });
+
+    // Initialize global queue if not exists
+    if (!QueuedClaudeService.globalQueue) {
+      QueuedClaudeService.globalQueue = new AIRequestQueue(this);
+    }
+  }
+
+  // This method is called by the AIRequestQueue
+  async makeRequest(prompt: string): Promise<string> {
+    const requestId = Math.random().toString(36).substring(2, 15);
+    const requestStartTime = Date.now();
+    
+    try {
+      logger.debug(`[QUEUED_CLAUDE] Making direct API call`, {
+        requestId,
+        promptLength: prompt.length,
+        model: "claude-3-5-haiku-latest"
+      });
+      
+      const message = await this.anthropic.messages.create({
+        model: "claude-3-5-haiku-latest",
+        max_tokens: 4000,
+        temperature: 0.3,
+        messages: [
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+      });
+
+      const response = message.content[0];
+      if (response.type !== 'text') {
+        throw new Error('Unexpected response type from Claude');
+      }
+
+      const totalTime = Date.now() - requestStartTime;
+      
+      logger.info(`[QUEUED_CLAUDE] API request successful`, {
+        requestId,
+        responseLength: response.text.length,
+        totalTimeMs: totalTime,
+        inputTokens: message.usage?.input_tokens,
+        outputTokens: message.usage?.output_tokens
+      });
+
+      return response.text;
+    } catch (error) {
+      const totalTime = Date.now() - requestStartTime;
+      logger.error(`[QUEUED_CLAUDE] API request failed`, error as Error, {
+        requestId,
+        totalTimeMs: totalTime
+      });
+      throw error;
+    }
+  }
+
+  // Override to use the queue
+  protected async makeAIRequest(prompt: string): Promise<string> {
+    if (!QueuedClaudeService.globalQueue) {
+      throw new Error('AI request queue not initialized');
+    }
+    
+    logger.debug(`[QUEUED_CLAUDE] Submitting request to queue`);
+    return QueuedClaudeService.globalQueue.enqueueRequest(prompt);
+  }
+
+  // Get queue status for monitoring
+  static getQueueStatus() {
+    return QueuedClaudeService.globalQueue?.getStatus() || null;
+  }
+
+  // Clear queue (useful for testing)
+  static clearQueue() {
+    QueuedClaudeService.globalQueue?.clear();
+  }
+
+  // Enhanced analysis with screenshot support (same as ClaudeService)
+  async analyzeWithScreenshot(websiteData: WebsiteData, analysisType: string, prompt: string): Promise<AIAnalysisResult> {
+    const startTime = Date.now();
+    const requestId = Math.random().toString(36).substring(2, 15);
+    
+    try {
+      if (!websiteData.screenshot) {
+        logger.debug(`[QUEUED_CLAUDE_SCREENSHOT] No screenshot available, falling back to text-only analysis`, {
+          requestId,
+          url: websiteData.url,
+          analysisType
+        });
+        return this.analyzeWebsite(websiteData, analysisType, prompt);
+      }
+
+      logger.warn(`[QUEUED_CLAUDE_SCREENSHOT] Starting screenshot-enhanced analysis`, {
+        requestId,
+        url: websiteData.url,
+        analysisType,
+        screenshotSize: websiteData.screenshot.length
+      });
+
+      // Use screenshot analysis - delegate to queue
+      const enhancedPrompt = this.buildPromptWithScreenshot(websiteData, prompt);
+      const response = await this.makeAIRequest(enhancedPrompt);
+      const result = this.parseAIResponse(response);
+      
+      const analysisTime = Date.now() - startTime;
+      logger.warn(`[QUEUED_CLAUDE_SCREENSHOT] Screenshot-enhanced analysis completed`, {
+        requestId,
+        url: websiteData.url,
+        analysisType,
+        score: result.score,
+        analysisTimeMs: analysisTime
+      });
+      
+      return result;
+    } catch (error) {
+      const analysisTime = Date.now() - startTime;
+      logger.error(`[QUEUED_CLAUDE_SCREENSHOT] Screenshot analysis failed, falling back to text-only`, error as Error, {
+        requestId,
+        url: websiteData.url,
+        analysisType,
+        analysisTimeMs: analysisTime
+      });
+      // Fallback to text-only analysis
+      return this.analyzeWebsite(websiteData, analysisType, prompt);
+    }
+  }
+
+  private buildPromptWithScreenshot(websiteData: WebsiteData, specificPrompt: string): string {
+    // For now, fall back to text-only since multimodal requires different API handling
+    return this.buildPrompt(websiteData, specificPrompt);
   }
 }
 

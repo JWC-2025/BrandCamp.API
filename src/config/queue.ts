@@ -110,7 +110,7 @@ const initializeQueue = async () => {
         const { processAudit } = await import('../workers/auditWorker');
         await processAudit(job);
       } catch (error) {
-        logger.error(`In-memory job failed:`, error);
+        logger.error(`In-memory job failed:`, error as Error);
       } finally {
         isProcessing = false;
         // Process next job if available

@@ -7,7 +7,7 @@ import { BlobStorageService } from '../services/blobStorageService';
 import { AuditRepository } from '../repositories/auditRepository';
 import { CSVConverter } from '../utils/csvConverter';
 import { logger } from '../utils/logger';
-import { auditQueue } from '../config/queue';
+import { QueuedClaudeService } from '../services/aiService';
 
 const websiteAnalyzer = new WebsiteAnalyzer();
 const scoringEngine = new ScoringEngine();
@@ -64,6 +64,9 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     const scoringStartTime = Date.now();
     const scores = await scoringEngine.calculateScores(websiteData);
     const scoringTime = Date.now() - scoringStartTime;
+    
+    // Log queue status for monitoring
+    const queueStatus = QueuedClaudeService.getQueueStatus();
     logger.warn(`[AUDIT_WORKER_SCORING_COMPLETE] AI scoring completed`, {
       auditId,
       overallScore: scores.overall,
@@ -73,7 +76,8 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
         featuresAndBenefits: scores.featuresAndBenefits.score,
         ctaAnalysis: scores.ctaAnalysis.score,
         trustSignals: scores.trustSignals.score
-      }
+      },
+      aiQueueStatus: queueStatus
     });
     await job.progress(70);
 

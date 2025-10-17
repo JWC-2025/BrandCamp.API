@@ -60,7 +60,7 @@ export class AuditRepository {
     try {
       await this.sql`
         UPDATE audit_requests 
-        SET status = ${status}, error_message = ${errorMessage || null}, updated_at = NOW()
+        SET status = ${status}, updated_at = NOW()
         WHERE id = ${id}
       `;
       logger.warn(`Updated audit ${id} status to: ${status}`);

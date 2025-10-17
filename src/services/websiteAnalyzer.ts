@@ -31,13 +31,31 @@ export class WebsiteAnalyzer {
   }
 
   private async getBasicWebsiteData(url: string): Promise<WebsiteData> {
+    const requestId = Math.random().toString(36).substring(2, 8);
     const startTime = Date.now();
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 1000; // 1 second
     
+    logger.warn(`[WEBSITE_ANALYZER] Starting website data gathering`, {
+      requestId,
+      url,
+      maxRetries: MAX_RETRIES,
+      timeout: DEFAULT_TIMEOUT,
+      maxPageSize: `${Math.round(MAX_PAGE_SIZE / 1024 / 1024)}MB`
+    });
+    
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const attemptStartTime = Date.now();
       try {
-        logger.warn(`gathering website data (attempt ${attempt}/${MAX_RETRIES})..`);
+        logger.warn(`[WEBSITE_ANALYZER] Gathering website data (attempt ${attempt}/${MAX_RETRIES})`, {
+          requestId,
+          url,
+          attempt,
+          elapsedMs: Date.now() - startTime
+        });
+        
+        // DNS resolution timing
+        const dnsStartTime = Date.now();
         
         const response = await axios.get(url, {
           timeout: DEFAULT_TIMEOUT,
@@ -55,9 +73,45 @@ export class WebsiteAnalyzer {
           maxRedirects: 5,
         });
 
-        const dom = new JSDOM(response.data);
-        const document = dom.window.document;
+        const networkTime = Date.now() - dnsStartTime;
+        const contentSize = typeof response.data === 'string' ? response.data.length : 0;
+        
+        logger.warn(`[WEBSITE_ANALYZER] HTTP request completed`, {
+          requestId,
+          url,
+          attempt,
+          networkTimeMs: networkTime,
+          statusCode: response.status,
+          contentLength: contentSize,
+          contentSizeKB: Math.round(contentSize / 1024),
+          headers: {
+            contentType: response.headers['content-type'],
+            contentEncoding: response.headers['content-encoding'],
+            server: response.headers.server
+          }
+        });
 
+        // JSDOM parsing timing
+        const domStartTime = Date.now();
+        const dom = new JSDOM(response.data, {
+          // Optimize JSDOM for better performance
+          resources: "usable",
+          runScripts: "outside-only",
+          pretendToBeVisual: false
+        });
+        const document = dom.window.document;
+        const domParsingTime = Date.now() - domStartTime;
+
+        logger.warn(`[WEBSITE_ANALYZER] DOM parsing completed`, {
+          requestId,
+          url,
+          attempt,
+          domParsingTimeMs: domParsingTime,
+          documentSize: contentSize
+        });
+
+        // Metadata extraction timing
+        const extractionStartTime = Date.now();
         const websiteData: WebsiteData = {
           url,
           html: response.data,
@@ -73,20 +127,54 @@ export class WebsiteAnalyzer {
           },
         };
         
-        logger.warn(`finished gathering website data successfully on attempt ${attempt}`);
+        const extractionTime = Date.now() - extractionStartTime;
+        const totalTime = Date.now() - startTime;
+        const attemptTime = Date.now() - attemptStartTime;
+
+        logger.warn(`[WEBSITE_ANALYZER] Website data gathering completed successfully`, {
+          requestId,
+          url,
+          attempt,
+          timing: {
+            networkMs: networkTime,
+            domParsingMs: domParsingTime,
+            extractionMs: extractionTime,
+            attemptMs: attemptTime,
+            totalMs: totalTime
+          },
+          metadata: {
+            titleLength: websiteData.metadata.title.length,
+            h1Count: websiteData.metadata.h1Tags.length,
+            imageCount: websiteData.metadata.images.length,
+            linkCount: websiteData.metadata.links.length,
+            formCount: websiteData.metadata.forms
+          },
+          performance: {
+            contentSizeKB: Math.round(contentSize / 1024),
+            processingRate: Math.round(contentSize / totalTime * 1000), // bytes/sec
+          }
+        });
+        
         return websiteData;
         
       } catch (error) {
+        const attemptTime = Date.now() - attemptStartTime;
         const isLastAttempt = attempt === MAX_RETRIES;
         const errorMessage = (error as any).message || 'Unknown error';
         const errorCode = (error as any).code;
         const statusCode = (error as any).response?.status;
         
-        logger.warn(`Attempt ${attempt}/${MAX_RETRIES} failed for ${url}:`, {
+        logger.warn(`[WEBSITE_ANALYZER] Attempt ${attempt}/${MAX_RETRIES} failed for ${url}`, {
+          requestId,
+          url,
+          attempt,
           error: errorMessage,
           code: errorCode,
           status: statusCode,
-          isLastAttempt
+          attemptTimeMs: attemptTime,
+          totalElapsedMs: Date.now() - startTime,
+          isLastAttempt,
+          timeout: DEFAULT_TIMEOUT
         });
 
         if (isLastAttempt) {

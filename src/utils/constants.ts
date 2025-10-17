@@ -14,7 +14,7 @@ export const SCORE_THRESHOLDS = {
   poor: 40,
 } as const;
 
-export const DEFAULT_TIMEOUT = 60000;
+export const DEFAULT_TIMEOUT = 30000; // Reduced from 60s to 30s
 
 export const MAX_PAGE_SIZE = 5 * 1024 * 1024; // 5MB
 

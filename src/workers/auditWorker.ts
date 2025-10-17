@@ -33,7 +33,6 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     // Update status to processing
     logger.debug(`[AUDIT_WORKER_DB] Updating audit status to processing for ID: ${auditId}`);
     await auditRepository.updateStatus(auditId, 'processing');
-    await job.progress(10);
 
     // Analyze website
     logger.warn(`[AUDIT_WORKER_ANALYZE] Starting website analysis`, {

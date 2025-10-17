@@ -30,13 +30,13 @@ export class WebsiteAnalyzer {
   }
 
   private async getBasicWebsiteData(url: string): Promise<WebsiteData> {
-    const requestId = Math.random().toString(36).substring(2, 8);
     const startTime = Date.now();
     const MAX_RETRIES = 2;
     const RETRY_DELAY = 500;
   
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
+        logger.warn(`making axois request to get website data...`);
         const response = await axios.get(url, {
           timeout: 15000,
           maxContentLength: 5 * 1024 * 1024,
@@ -50,6 +50,7 @@ export class WebsiteAnalyzer {
           maxRedirects: 3,
         });
 
+        logger.warn(`loading website data into cheerio...`);
         // Use Cheerio instead of JSDOM - NO DOM PARSING
         const $ = cheerio.load(response.data);
 

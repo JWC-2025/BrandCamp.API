@@ -31,10 +31,6 @@ export class WebsiteAnalyzer {
 
   private async getBasicWebsiteData(url: string): Promise<WebsiteData> {
     const startTime = Date.now();
-    const MAX_RETRIES = 2;
-    const RETRY_DELAY = 500;
-  
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         logger.warn(`making axois request to get website data...`);
         const response = await axios.get(url, {
@@ -72,20 +68,11 @@ export class WebsiteAnalyzer {
         return websiteData;
         
       } catch (error) {
-        const isLastAttempt = attempt === MAX_RETRIES;
-        
-        if (isLastAttempt) {
-          throw new Error(`Failed to fetch website: ${(error as any).message}`);
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
+        throw new Error(`Failed to fetch website: ${(error as any).message}`);
       }
-    }
-  
-    throw new Error('Failed to fetch website data after all retries');
   }
 
-  private extractKeywordsCheerio($: cheerio.CheerioAPI): string[] {
+  private extractKeywordsCheerio($: cheerio.Root): string[] {
     const keywords = $('meta[name="keywords"]').attr('content');
     return keywords ? keywords.split(',').map(k => k.trim()) : [];
   }

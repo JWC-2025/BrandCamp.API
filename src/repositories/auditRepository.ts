@@ -63,10 +63,9 @@ export class AuditRepository {
         SET status = ${status}, error_message = ${errorMessage || null}, updated_at = NOW()
         WHERE id = ${id}
       `;
-      logger.info(`Updated audit ${id} status to: ${status}`);
+      logger.warn(`Updated audit ${id} status to: ${status}`);
     } catch (error) {
       logger.error('Error updating audit status:', error as Error);
-      throw error;
     }
   }
 

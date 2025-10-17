@@ -31,7 +31,7 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
     });
     
     // Update status to processing
-    logger.debug(`[AUDIT_WORKER_DB] Updating audit status to processing for ID: ${auditId}`);
+    logger.warn(`[AUDIT_WORKER_DB] Updating audit status to processing for ID: ${auditId}`);
     await auditRepository.updateStatus(auditId, 'processing');
 
     // Analyze website

@@ -31,45 +31,48 @@ export class WebsiteAnalyzer {
 
   private async getBasicWebsiteData(url: string): Promise<WebsiteData> {
     const startTime = Date.now();
-      try {
-        logger.warn(`making axois request to get website data...`);
-        const response = await axios.get(url, {
-          timeout: 15000,
-          maxContentLength: 5 * 1024 * 1024,
-          responseType: 'text',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; BrandCampAuditBot/1.0)',
-            'Accept': 'text/html',
-            'Accept-Encoding': 'gzip, deflate, br',
-          },
-          validateStatus: (status) => status >= 200 && status < 400,
-          maxRedirects: 3,
-        });
+    try {
+      logger.warn(`making axios request to get website data...`);
+      const response = await axios.get(url, {
+        timeout: 30000, // Increased timeout to 30 seconds
+        maxContentLength: 10 * 1024 * 1024, // Increased to 10MB
+        responseType: 'text',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        validateStatus: (status) => status >= 200 && status < 400,
+        maxRedirects: 5,
+      });
 
-        logger.warn(`loading website data into cheerio...`);
-        // Use Cheerio instead of JSDOM - NO DOM PARSING
-        const $ = cheerio.load(response.data);
+      logger.warn(`loading website data into cheerio...`);
+      // Use Cheerio instead of JSDOM - NO DOM PARSING
+      const $ = cheerio.load(response.data);
 
-        const websiteData: WebsiteData = {
-          url,
-          html: response.data,
-          metadata: {
-            title: $('title').text().trim(),
-            description: $('meta[name="description"]').attr('content')?.trim() || '',
-            keywords: this.extractKeywordsCheerio($),
-            h1Tags: $('h1').map((_, el) => $(el).text().trim()).get(),
-            images: $('img').map((_, el) => $(el).attr('src')).get().filter(Boolean),
-            links: $('a').map((_, el) => $(el).attr('href')).get().filter(Boolean),
-            forms: $('form').length,
-            loadTime: Date.now() - startTime,
-          },
-        };
-        
-        return websiteData;
-        
-      } catch (error) {
-        throw new Error(`Failed to fetch website: ${(error as any).message}`);
-      }
+      const websiteData: WebsiteData = {
+        url,
+        html: response.data,
+        metadata: {
+          title: $('title').text().trim(),
+          description: $('meta[name="description"]').attr('content')?.trim() || '',
+          keywords: this.extractKeywordsCheerio($),
+          h1Tags: $('h1').map((_, el) => $(el).text().trim()).get(),
+          images: $('img').map((_, el) => $(el).attr('src')).get().filter(Boolean),
+          links: $('a').map((_, el) => $(el).attr('href')).get().filter(Boolean),
+          forms: $('form').length,
+          loadTime: Date.now() - startTime,
+        },
+      };
+      
+      return websiteData;
+      
+    } catch (error) {
+      throw new Error(`Failed to fetch website: ${(error as any).message}`);
+    }
   }
 
   private extractKeywordsCheerio($: cheerio.Root): string[] {

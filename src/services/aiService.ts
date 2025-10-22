@@ -73,110 +73,56 @@ export abstract class AIService {
   }
 
 
-  protected summarizeContent(content: string, maxLength: number = 3000): string {
-    if (content.length <= maxLength) return content;
-    
-    // Extract key sections: headings, form labels, button text, links
-    const keyPatterns = [
-      /<h[1-6][^>]*>([^<]+)<\/h[1-6]>/gi,
-      /<title[^>]*>([^<]+)<\/title>/gi,
-      /<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["'][^>]*>/gi,
-      /<button[^>]*>([^<]+)<\/button>/gi,
-      /<a[^>]*>([^<]+)<\/a>/gi,
-      /<label[^>]*>([^<]+)<\/label>/gi,
-      /<input[^>]*placeholder=["']([^"']+)["']/gi
-    ];
-    
-    const extractedContent: string[] = [];
-    keyPatterns.forEach(pattern => {
-      let match;
-      while ((match = pattern.exec(content)) !== null && extractedContent.length < 100) {
-        extractedContent.push(match[1].trim());
-      }
-    });
-    
-    const summarized = extractedContent.join(' | ');
-    return summarized.length > maxLength ? summarized.substring(0, maxLength) + '...' : summarized;
-  }
 
 
   protected buildPrompt(
     websiteData: WebsiteData, 
     specificPrompt: string
   ): string {
-    // Build comprehensive website analysis data
-    const performanceData = websiteData.performance ? `
-Core Web Vitals:
-- LCP (Largest Contentful Paint): ${websiteData.performance.coreWebVitals.lcp}ms
-- FID (First Input Delay): ${websiteData.performance.coreWebVitals.fid}ms  
-- CLS (Cumulative Layout Shift): ${websiteData.performance.coreWebVitals.cls}
-
-Loading Metrics:
-- DOM Content Loaded: ${websiteData.performance.loadingMetrics.domContentLoaded}ms
-- First Contentful Paint: ${websiteData.performance.loadingMetrics.firstContentfulPaint}ms
-- Largest Contentful Paint: ${websiteData.performance.loadingMetrics.largestContentfulPaint}ms
-
-Network Metrics:
-- Request Count: ${websiteData.performance.networkMetrics.requestCount}
-- Transfer Size: ${Math.round(websiteData.performance.networkMetrics.transferSize / 1024)}KB
-- Resource Load Time: ${websiteData.performance.networkMetrics.resourceLoadTime}ms` : '';
-
-    const seoData = websiteData.seo ? `
-SEO Analysis:
-- Structured Data Present: ${websiteData.seo.structuredData ? 'Yes' : 'No'}
-- Meta Tags Complete: ${websiteData.seo.metaTagsComplete ? 'Yes' : 'No'}
-- Proper Heading Structure: ${websiteData.seo.headingStructure ? 'Yes' : 'No'}` : '';
-
-    const accessibilityData = websiteData.accessibility ? `
-Accessibility Analysis:
-- Accessibility Score: ${websiteData.accessibility.score}/100
-- Issues Found: ${websiteData.accessibility.issues.length > 0 ? websiteData.accessibility.issues.join(', ') : 'None'}` : '';
-
     return `
-You are an expert marketing analyst and web performance specialist evaluating a website. 
+You are an expert marketing analyst and web performance specialist evaluating a website.
 
-STEP 1: BUSINESS CONTEXT ANALYSIS
-First, analyze the website data below to determine:
+STEP 1: WEBSITE DATA COLLECTION
+First, use your web fetch tool to retrieve and analyze the website at: ${websiteData.url}
+
+IMPORTANT WEBSITE FETCH INSTRUCTIONS:
+- Use your built-in web fetch capability to retrieve the complete website content
+- Extract all relevant HTML, meta tags, content, and structure information
+- Limit content size to 5MB to avoid large files
+- Skip video content if encountered
+- If the website is too large or unavailable, provide a clear error message
+
+STEP 2: BUSINESS CONTEXT ANALYSIS
+After fetching the website, analyze the content to determine:
 - Industry type and business model
 - Target audience and customer segments  
 - Primary business goals and objectives
 - Appropriate industry standards and best practices
 
-STEP 2: DETAILED EVALUATION
+STEP 3: DETAILED EVALUATION
 Then use this context to evaluate the specific area requested.
-
-WEBSITE TECHNICAL DATA:
-Website URL: ${websiteData.url}
-Page Title: ${websiteData.metadata.title}
-Meta Description: ${websiteData.metadata.description}
-H1 Tags: ${websiteData.metadata.h1Tags.join(', ')}
-Keywords: ${websiteData.metadata.keywords.join(', ')}
-Number of Forms: ${websiteData.metadata.forms}
-Number of Images: ${websiteData.metadata.images.length}
-Number of Links: ${websiteData.metadata.links.length}
-Load Time: ${websiteData.metadata.loadTime}ms
-
-${performanceData}
-
-${seoData}
-
-${accessibilityData}
-
-CONTENT ANALYSIS:
-Key Content: ${this.summarizeContent(websiteData.html, 2000)}
 
 EVALUATION TASK:
 ${specificPrompt}
 
 Please provide a comprehensive analysis considering:
-1. The business context and industry standards you identified
-2. Target audience expectations and needs  
+1. The business context and industry standards you identified from the fetched website
+2. Target audience expectations and needs based on the actual content
 3. Industry-specific best practices
-4. Current performance metrics and technical factors
-5. Content quality and messaging effectiveness
+4. Content quality and messaging effectiveness from the live website
+5. Visual design and user experience elements visible in the website
 
 Respond in the following JSON format with detailed, actionable insights:
 {
+  "websiteData": {
+    "title": "<extracted page title>",
+    "description": "<extracted meta description>",
+    "mainHeadings": ["<h1 tags found>"],
+    "keyContent": "<summary of main content>",
+    "ctaButtons": ["<call-to-action buttons found>"],
+    "industry": "<detected industry>",
+    "businessType": "<business model type>"
+  },
   "context": {
     "industry": "<detected industry>",
     "businessType": "<business model type>",
@@ -185,23 +131,24 @@ Respond in the following JSON format with detailed, actionable insights:
   },
   "score": <number between 0-100>,
   "insights": [
-    "Primary insight with specific details",
+    "Primary insight with specific details from the live website",
     "Secondary insight with contextual analysis", 
-    "Technical insight with performance implications",
-    "Content insight with messaging evaluation",
+    "Content insight with messaging evaluation based on actual content",
+    "Design insight with user experience observations",
     "Industry-specific insight with competitive context"
   ],
   "recommendations": [
     "High-priority recommendation with implementation approach",
     "Medium-priority recommendation with expected impact",
-    "Technical recommendation with specific fixes",
-    "Content recommendation with messaging improvements", 
+    "Content recommendation with specific messaging improvements", 
+    "Design recommendation for better user experience",
     "Strategic recommendation for long-term optimization"
   ]
 }
 
 Ensure all insights and recommendations are:
-- Specific and actionable
+- Based on the actual content you fetched from the live website
+- Specific and actionable with clear implementation steps
 - Contextually relevant to the industry and business type you identified
 - Backed by observable data from the website analysis
 - Prioritized by potential impact and implementation difficulty
@@ -222,6 +169,17 @@ Make sure your response is valid JSON and nothing else.
       }
       
       const parsed = JSON.parse(cleanedResponse);
+      
+      // Log the website data that Claude fetched for debugging
+      if (parsed.websiteData) {
+        logger.warn(`Claude fetched website data:`, {
+          title: parsed.websiteData.title,
+          industry: parsed.websiteData.industry,
+          businessType: parsed.websiteData.businessType,
+          hasContent: !!parsed.websiteData.keyContent,
+          ctaCount: Array.isArray(parsed.websiteData.ctaButtons) ? parsed.websiteData.ctaButtons.length : 0
+        });
+      }
       
       return {
         score: Math.max(0, Math.min(100, parsed.score || 0)),

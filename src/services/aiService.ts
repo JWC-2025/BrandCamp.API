@@ -365,9 +365,25 @@ export class ClaudeService extends AIService {
         
         // Add timeout wrapper
         const apiCallPromise = this.anthropic.messages.create({
-          model,
-          max_tokens: maxTokens,
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 4096,
           temperature: 0.3,
+          tools: [
+                    {
+                      name: "web_fetch",
+                      description: "Fetches website content",
+                      input_schema: {
+                        type: "object",
+                        properties: {
+                          url: {
+                            type: "string",
+                            description: "The URL of the website to fetch"
+                          }
+                        },
+                        required: ["url"]
+                      }
+                    }
+                  ],
           messages: [
             {
               role: "user",

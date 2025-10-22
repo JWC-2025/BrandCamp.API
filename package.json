@@ -25,7 +25,7 @@
   "license": "ISC",
   "description": "Marketing Agency Website Audit Platform API - Evaluates websites across multiple criteria using AI and generates reports for marketing agencies",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.57.0",
+    "@anthropic-ai/sdk": "^0.67.0",
     "@types/multer": "^2.0.0",
     "@vercel/blob": "^1.1.1",
     "axios": "^1.11.0",

@@ -32,10 +32,35 @@ export class WebsiteAnalyzer {
   private async getBasicWebsiteData(url: string): Promise<WebsiteData> {
     const startTime = Date.now();
     try {
+      // Check content size and type before downloading
+      logger.warn(`checking content size and type for: ${url}`);
+      const headResponse = await axios.head(url, {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        },
+        validateStatus: (status) => status >= 200 && status < 400,
+        maxRedirects: 5,
+      });
+
+      const contentLength = headResponse.headers['content-length'];
+      const contentType = headResponse.headers['content-type'] || '';
+      const maxSize = 5 * 1024 * 1024; // 5MB limit
+
+      // Skip video content
+      if (contentType.includes('video/')) {
+        throw new Error('Video content is not supported for analysis');
+      }
+
+      // Check content size
+      if (contentLength && parseInt(contentLength) > maxSize) {
+        throw new Error(`Content too large: ${Math.round(parseInt(contentLength) / 1024 / 1024)}MB exceeds 5MB limit`);
+      }
+
       logger.warn(`making axios request to get website data...`);
       const response = await axios.get(url, {
         timeout: 30000, // Increased timeout to 30 seconds
-        maxContentLength: 10 * 1024 * 1024, // Increased to 10MB
+        maxContentLength: maxSize, // 5MB limit
         responseType: 'text',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',

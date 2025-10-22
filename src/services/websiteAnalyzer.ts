@@ -61,6 +61,7 @@ export class WebsiteAnalyzer {
       const response = await axios.get(url, {
         timeout: 30000, // Increased timeout to 30 seconds
         maxContentLength: maxSize, // 5MB limit
+        maxBodyLength: maxSize, // Also limit request body
         responseType: 'text',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -74,6 +75,7 @@ export class WebsiteAnalyzer {
         maxRedirects: 5,
       });
 
+      logger.warn(`axios request completed. Status: ${response.status}, Content-Length: ${response.headers['content-length'] || 'unknown'}`);
       logger.warn(`loading website data into cheerio...`);
       // Use Cheerio instead of JSDOM - NO DOM PARSING
       const $ = cheerio.load(response.data);

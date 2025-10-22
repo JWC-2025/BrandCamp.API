@@ -86,11 +86,11 @@ STEP 1: WEBSITE DATA COLLECTION
 First, use your web fetch tool to retrieve and analyze the website at: ${websiteData.url}
 
 IMPORTANT WEBSITE FETCH INSTRUCTIONS:
-- Use your built-in web fetch capability to retrieve the complete website content
-- Extract all relevant HTML, meta tags, content, and structure information
-- Limit content size to 5MB to avoid large files
-- Skip video content if encountered
-- If the website is too large or unavailable, provide a clear error message
+- Use your built-in web fetch tool to retrieve the website content
+- Extract HTML, meta tags, headings, content, and structure information
+- If the website fetch fails or times out, provide analysis based on the URL and domain patterns
+- For timeouts or large files, focus on analyzing what can be inferred from the domain/URL
+- Always provide a score and analysis even if website fetch partially fails
 
 STEP 2: BUSINESS CONTEXT ANALYSIS
 After fetching the website, analyze the content to determine:
@@ -376,8 +376,19 @@ export class ClaudeService extends AIService {
           ],
         });
         
+        // Longer timeout for web fetch operations (detect from prompt content)
+        const isWebFetchOperation = prompt.includes('WEBSITE DATA COLLECTION') || prompt.includes('web fetch tool');
+        const timeoutMs = isWebFetchOperation ? 120000 : 45000; // 2 minutes for web fetch, 45s for normal
+        
+        logger.warn(`[ANTHROPIC_TIMEOUT] Setting timeout`, {
+          requestId,
+          timeoutMs,
+          isWebFetchOperation,
+          model
+        });
+        
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('API request timeout')), 45000); // 45s timeout
+          setTimeout(() => reject(new Error('API request timeout')), timeoutMs);
         });
         
         const message = await Promise.race([apiCallPromise, timeoutPromise]);

@@ -30,9 +30,9 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
       timestamp: new Date().toISOString()
     });
     
-    // Update status to processing
-    //logger.warn(`[AUDIT_WORKER_DB] Updating audit status to processing for ID: ${auditId}`);
-    //await auditRepository.updateStatus(auditId, 'processing');
+   // Update status to processing
+    logger.warn(`[AUDIT_WORKER_DB] Updating audit status to processing for ID: ${auditId}`);
+    await auditRepository.updateStatus(auditId, 'processing');
 
     // Analyze website
     logger.warn(`[AUDIT_WORKER_ANALYZE] Starting website analysis`, {

@@ -415,13 +415,29 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
       logger.debug(`[QUEUED_CLAUDE] Making direct API call`, {
         requestId,
         promptLength: prompt.length,
-        model: "claude-haiku-4-5"
+        model: "claude-sonnet-4-5-20250929"
       });
       
       const message = await this.anthropic.messages.create({
-        model: "claude-haiku-4-5",
+        model: "claude-sonnet-4-5-20250929",
         max_tokens: 4000,
         temperature: 0.3,
+        tools: [
+          {
+            name: "web_fetch",
+            description: "Fetches website content",
+            input_schema: {
+              type: "object",
+              properties: {
+                url: {
+                  type: "string",
+                  description: "The URL of the website to fetch"
+                }
+              },
+              required: ["url"]
+            }
+          }
+        ],
         messages: [
           {
             role: "user",

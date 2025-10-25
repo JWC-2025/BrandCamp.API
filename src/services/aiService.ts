@@ -59,54 +59,18 @@ export abstract class AIService {
     return `
 You are an expert marketing analyst and web performance specialist evaluating a website.
 
-STEP 1: WEBSITE DATA COLLECTION
-First, use your web fetch tool to retrieve and analyze the website at: ${websiteData.url}
-
-IMPORTANT WEBSITE FETCH INSTRUCTIONS:
-- Use your built-in web fetch tool to retrieve the website content
-- Extract HTML, meta tags, headings, content, and structure information
-- If the website fetch fails or times out, provide analysis based on the URL and domain patterns
-- For timeouts or large files, focus on analyzing what can be inferred from the domain/URL
-- Always provide a score and analysis even if website fetch partially fails
-
-STEP 2: BUSINESS CONTEXT ANALYSIS
-After fetching the website, analyze the content to determine:
-- Industry type and business model
-- Target audience and customer segments  
-- Primary business goals and objectives
-- Appropriate industry standards and best practices
-
-STEP 3: DETAILED EVALUATION
-Then use this context to evaluate the specific area requested.
-
 EVALUATION TASK:
 ${specificPrompt}
 
 Please provide a comprehensive analysis considering:
-1. The business context and industry standards you identified from the fetched website
+1. The business context and industry standards you identified from the html content
 2. Target audience expectations and needs based on the actual content
 3. Industry-specific best practices
-4. Content quality and messaging effectiveness from the live website
-5. Visual design and user experience elements visible in the website
+4. Content quality and messaging effectiveness
+5. Visual design and user experience elements
 
 Respond in the following JSON format with detailed, actionable insights:
 {
-  "websiteData": {
-    "title": "<extracted page title>",
-    "description": "<extracted meta description>",
-    "mainHeadings": ["<h1 tags found>"],
-    "keyContent": "<summary of main content>",
-    "ctaButtons": ["<call-to-action buttons found>"],
-    "industry": "<detected industry>",
-    "businessType": "<business model type>"
-  },
-  "context": {
-    "industry": "<detected industry>",
-    "businessType": "<business model type>",
-    "targetAudience": "<primary target audience>",
-    "primaryGoal": "<main business objective>"
-  },
-  "score": <number between 0-100>,
   "insights": [
     "Primary insight with specific details from the live website",
     "Secondary insight with contextual analysis", 
@@ -124,13 +88,17 @@ Respond in the following JSON format with detailed, actionable insights:
 }
 
 Ensure all insights and recommendations are:
-- Based on the actual content you fetched from the live website
+- Based on the actual provided html content 
 - Specific and actionable with clear implementation steps
 - Contextually relevant to the industry and business type you identified
-- Backed by observable data from the website analysis
+- Backed by observable data from the html analysis
 - Prioritized by potential impact and implementation difficulty
 
 Make sure your response is valid JSON and nothing else.
+
+Here is the HTML content: 
+
+${websiteData.html}
 `;
   }
 
@@ -225,24 +193,8 @@ export class ClaudeService extends AIService {
         // Add timeout wrapper
         const apiCallPromise = this.anthropic.messages.create({
           model: 'claude-sonnet-4-5-20250929',
-          max_tokens: 4096,
+          max_tokens: 20000,
           temperature: 0.3,
-          tools: [
-                    {
-                      name: "web_fetch",
-                      description: "Fetches website content",
-                      input_schema: {
-                        type: "object",
-                        properties: {
-                          url: {
-                            type: "string",
-                            description: "The URL of the website to fetch"
-                          }
-                        },
-                        required: ["url"]
-                      }
-                    }
-                  ],
           messages: [
             {
               role: "user",
@@ -420,24 +372,8 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
       
       const message = await this.anthropic.messages.create({
         model: "claude-sonnet-4-5-20250929",
-        max_tokens: 4000,
+        max_tokens: 20000,
         temperature: 0.3,
-        tools: [
-          {
-            name: "web_fetch",
-            description: "Fetches website content",
-            input_schema: {
-              type: "object",
-              properties: {
-                url: {
-                  type: "string",
-                  description: "The URL of the website to fetch"
-                }
-              },
-              required: ["url"]
-            }
-          }
-        ],
         messages: [
           {
             role: "user",

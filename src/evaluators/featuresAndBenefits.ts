@@ -1,21 +1,19 @@
 import { WebsiteData } from '../types/audit';
 import { Evaluator, EvaluationResult } from '../types/evaluator';
-import { ClaudeService, MockAIService } from '../services/aiService';
+import { ClaudeService } from '../services/aiService';
 import { config } from '../config/environment';
 
 export class FeaturesAndBenefitsEvaluator implements Evaluator {
   name = 'Features and Benefits';
-  private aiService: ClaudeService | MockAIService;
+  private aiService: ClaudeService;
 
   constructor() {
-    this.aiService = config.ai.anthropicApiKey 
-      ? new ClaudeService(config.ai.anthropicApiKey)
-      : new MockAIService();
+    this.aiService = new ClaudeService(config.ai.anthropicApiKey)
   }
 
   async evaluate(websiteData: WebsiteData): Promise<EvaluationResult> {
     const prompt = `
-Analyze how well this website presents its features and benefits. Consider:
+Analyze how well the provided HTML content presents its features and benefits. Consider:
 
 1. Clear presentation of key features
 2. Translation of features into customer benefits
@@ -33,9 +31,7 @@ Focus on:
 Rate the features and benefits presentation on a scale of 0-100.
     `;
 
-    const result = this.aiService instanceof ClaudeService && websiteData.screenshot
-      ? await this.aiService.analyzeWithScreenshot(websiteData, this.name, prompt)
-      : await this.aiService.analyzeWebsite(websiteData, this.name, prompt);
+    const result = await this.aiService.analyzeWebsite(websiteData, this.name, prompt);
     
     return {
       score: result.score,

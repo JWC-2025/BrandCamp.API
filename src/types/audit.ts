@@ -103,3 +103,19 @@ export interface WebsiteData {
     headingStructure: boolean;
   };
 }
+
+export interface FetchOptions {
+  timeout?: number;
+  maxContentLength?: number;
+  userAgent?: string;
+}
+
+export interface ProcessedHTML {
+  content: string;
+  tokenEstimate: number;
+  metadata: {
+    title: string;
+    description: string;
+    url: string;
+  };
+}

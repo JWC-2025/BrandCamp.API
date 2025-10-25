@@ -1,21 +1,19 @@
 import { WebsiteData } from '../types/audit';
 import { Evaluator, EvaluationResult } from '../types/evaluator';
-import { ClaudeService, MockAIService } from '../services/aiService';
+import { ClaudeService } from '../services/aiService';
 import { config } from '../config/environment';
 
 export class TrustSignalsEvaluator implements Evaluator {
   name = 'Trust Signals';
-  private aiService: ClaudeService | MockAIService;
+  private aiService: ClaudeService;
 
   constructor() {
-    this.aiService = config.ai.anthropicApiKey 
-      ? new ClaudeService(config.ai.anthropicApiKey)
-      : new MockAIService();
+    this.aiService = new ClaudeService(config.ai.anthropicApiKey)
   }
 
   async evaluate(websiteData: WebsiteData): Promise<EvaluationResult> {
     const prompt = `
-Analyze the trust signals and credibility indicators on this website. Consider:
+Analyze the trust signals and credibility indicators on the provided HTML content. Consider:
 
 1. Social proof elements (testimonials, reviews, case studies)
 2. Security and privacy indicators
@@ -36,9 +34,7 @@ Focus on:
 Rate the trust signals effectiveness on a scale of 0-100.
     `;
 
-    const result = this.aiService instanceof ClaudeService && websiteData.screenshot
-      ? await this.aiService.analyzeWithScreenshot(websiteData, this.name, prompt)
-      : await this.aiService.analyzeWebsite(websiteData, this.name, prompt);
+    const result = await this.aiService.analyzeWebsite(websiteData, this.name, prompt);
     
     return {
       score: result.score,

@@ -1,21 +1,19 @@
 import { WebsiteData } from '../types/audit';
 import { Evaluator, EvaluationResult } from '../types/evaluator';
-import { ClaudeService, MockAIService } from '../services/aiService';
+import { ClaudeService } from '../services/aiService';
 import { config } from '../config/environment';
 
 export class CTAAnalysisEvaluator implements Evaluator {
   name = 'Call-to-Action Analysis';
-  private aiService: ClaudeService | MockAIService;
+  private aiService: ClaudeService;
 
   constructor() {
-    this.aiService = config.ai.anthropicApiKey 
-      ? new ClaudeService(config.ai.anthropicApiKey)
-      : new MockAIService();
+    this.aiService = new ClaudeService(config.ai.anthropicApiKey)
   }
 
   async evaluate(websiteData: WebsiteData): Promise<EvaluationResult> {
     const prompt = `
-Analyze the call-to-action (CTA) elements on this website. Consider:
+Analyze the call-to-action (CTA) elements on the provided HTML. Consider:
 
 1. Presence and visibility of primary CTAs
 2. Clarity and action-oriented language
@@ -34,10 +32,8 @@ Focus on:
 Rate the CTA effectiveness on a scale of 0-100.
     `;
 
-    const result = this.aiService instanceof ClaudeService && websiteData.screenshot
-      ? await this.aiService.analyzeWithScreenshot(websiteData, this.name, prompt)
-      : await this.aiService.analyzeWebsite(websiteData, this.name, prompt);
-    
+    const result = await this.aiService.analyzeWebsite(websiteData, this.name, prompt);
+
     return {
       score: result.score,
       insights: result.insights,

@@ -45,14 +45,8 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
       auditRequest.url, 
       auditRequest.includeScreenshot
     );
-    const analysisTime = Date.now() - analysisStartTime;
-    logger.warn(`[AUDIT_WORKER_ANALYZE_COMPLETE] Website analysis completed`, {
-      auditId,
-      url: auditRequest.url,
-      analysisTimeMs: analysisTime,
-      hasScreenshot: !!websiteData.screenshot,
-      pageTitle: websiteData.metadata.title
-    });
+   // const analysisTime = Date.now() - analysisStartTime;
+    logger.warn(`[AUDIT_WORKER_ANALYZE_COMPLETE] Website analysis completed`);
     await job.progress(40);
 
     // Generate scores using AI evaluation

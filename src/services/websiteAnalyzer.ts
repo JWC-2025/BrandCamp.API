@@ -8,7 +8,7 @@ export class WebsiteAnalyzer {
     // Website data will be fetched directly by Claude during analysis
   }
 
-  async analyze(url: string, includeScreenshot: boolean = false): Promise<WebsiteData> {
+  async analyze(url: string): Promise<WebsiteData> {
     try {
       logger.warn(`Starting Claude-based website analysis for: ${url}`);
       

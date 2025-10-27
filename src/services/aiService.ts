@@ -10,25 +10,32 @@ export interface AIAnalysisResult {
   recommendations: string[];
 }
 
+export interface PromptParts {
+  systemPrompt: string;
+  htmlContent: string;
+  taskPrompt: string;
+}
+
 export abstract class AIService {
-  protected abstract makeAIRequest(prompt: string): Promise<string>;
+  protected abstract makeAIRequest(promptParts: PromptParts | string): Promise<string>;
   
   async analyzeWebsite(websiteData: WebsiteData, analysisType: string, prompt: string): Promise<AIAnalysisResult> {
     const startTime = Date.now();
     try {
 
-      const fullPrompt = this.buildPrompt(websiteData, prompt);
-      const validatedPrompt = this.validatePromptSize(fullPrompt);
-      
+      const promptParts = this.buildPrompt(websiteData, prompt);
+
       logger.warn(`[AI_PROMPT] Sending prompt to AI service`, {
         analysisType,
-        promptLength: validatedPrompt.length,
+        systemPromptLength: promptParts.systemPrompt.length,
+        htmlContentLength: promptParts.htmlContent.length,
+        taskPromptLength: promptParts.taskPrompt.length,
         url: websiteData.url
       });
-      
-      const response = await this.makeAIRequest(validatedPrompt);
+
+      const response = await this.makeAIRequest(promptParts);
       const result = this.parseAIResponse(response);
-      
+
       const analysisTime = Date.now() - startTime;
       logger.warn(`[AI_ANALYSIS_COMPLETE] Completed AI analysis successfully`, {
         analysisType,
@@ -38,7 +45,7 @@ export abstract class AIService {
         recommendationsCount: result.recommendations.length,
         analysisTimeMs: analysisTime
       });
-      
+
       return result;
     } catch (error) {
       const analysisTime = Date.now() - startTime;
@@ -53,14 +60,10 @@ export abstract class AIService {
   }
 
   protected buildPrompt(
-    websiteData: WebsiteData, 
+    websiteData: WebsiteData,
     specificPrompt: string
-  ): string {
-    return `
-You are an expert marketing analyst and web performance specialist evaluating a website.
-
-EVALUATION TASK:
-${specificPrompt}
+  ): { systemPrompt: string; htmlContent: string; taskPrompt: string } {
+    const systemPrompt = `You are an expert marketing analyst and web performance specialist evaluating a website.
 
 Please provide a comprehensive analysis considering:
 1. The business context and industry standards you identified from the html content
@@ -73,7 +76,7 @@ Respond in the following JSON format with detailed, actionable insights:
 {
   "insights": [
     "Primary insight with specific details from the live website",
-    "Secondary insight with contextual analysis", 
+    "Secondary insight with contextual analysis",
     "Content insight with messaging evaluation based on actual content",
     "Design insight with user experience observations",
     "Industry-specific insight with competitive context"
@@ -81,25 +84,29 @@ Respond in the following JSON format with detailed, actionable insights:
   "recommendations": [
     "High-priority recommendation with implementation approach",
     "Medium-priority recommendation with expected impact",
-    "Content recommendation with specific messaging improvements", 
+    "Content recommendation with specific messaging improvements",
     "Design recommendation for better user experience",
     "Strategic recommendation for long-term optimization"
   ]
 }
 
 Ensure all insights and recommendations are:
-- Based on the actual provided html content 
+- Based on the actual provided html content
 - Specific and actionable with clear implementation steps
 - Contextually relevant to the industry and business type you identified
 - Backed by observable data from the html analysis
 - Prioritized by potential impact and implementation difficulty
 
-Make sure your response is valid JSON and nothing else.
+Make sure your response is valid JSON and nothing else.`;
 
-Here is the HTML content: 
+    const taskPrompt = `EVALUATION TASK:
+${specificPrompt}`;
 
-${websiteData.html}
-`;
+    return {
+      systemPrompt,
+      htmlContent: websiteData.html,
+      taskPrompt
+    };
   }
 
   protected parseAIResponse(response: string): AIAnalysisResult {
@@ -149,20 +156,6 @@ ${websiteData.html}
       recommendations: [`Please review ${analysisType} manually`],
     };
   }
-
-  private validatePromptSize(prompt: string): string {
-    const maxSize = 10000; // Reasonable limit to avoid token issues
-    if (prompt.length <= maxSize) return prompt;
-    
-    // Truncate while preserving the task section
-    const taskSection = prompt.split('EVALUATION TASK:');
-    if (taskSection.length === 2) {
-      const prefix = taskSection[0].substring(0, maxSize * 0.7);
-      return prefix + '\n\nEVALUATION TASK:\n' + taskSection[1];
-    }
-    
-    return prompt.substring(0, maxSize) + '\n\n[Content truncated for size limits]';
-  }
 }
 
 // Claude AI Service Implementation
@@ -177,35 +170,60 @@ export class ClaudeService extends AIService {
     });
   }
 
-  protected async makeAIRequest(prompt: string): Promise<string> {
-    const maxRetries = 1; 
+  protected async makeAIRequest(promptParts: PromptParts | string): Promise<string> {
+    const maxRetries = 1;
     let attempt = 0;
     const requestId = Math.random().toString(36).substring(2, 15);
     const requestStartTime = Date.now();
 
-    
+
     while (attempt < maxRetries) {
       const attemptStartTime = Date.now();
       try {
-        
-        logger.warn(`[ANTHROPIC_API_CALL] Making API call to Claude`);
-        
+
+        logger.warn(`[ANTHROPIC_API_CALL] Making API call to Claude with prompt caching`);
+
+        // Build messages array with prompt caching for HTML content
+        const messages: any[] = [];
+
+        if (typeof promptParts === 'string') {
+          // Legacy string prompt support
+          messages.push({
+            role: "user",
+            content: promptParts
+          });
+        } else {
+          // New structured prompt with caching
+          messages.push({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: promptParts.systemPrompt
+              },
+              {
+                type: "text",
+                text: `HTML Content:\n${promptParts.htmlContent}`,
+                cache_control: { type: "ephemeral" }
+              },
+              {
+                type: "text",
+                text: promptParts.taskPrompt
+              }
+            ]
+          });
+        }
+
         // Add timeout wrapper
         const apiCallPromise = this.anthropic.messages.create({
           model: 'claude-sonnet-4-5-20250929',
           max_tokens: 20000,
           temperature: 0.3,
-          messages: [
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
+          messages
         });
-        
-        // Longer timeout for web fetch operations (detect from prompt content)
-        const isWebFetchOperation = prompt.includes('WEBSITE DATA COLLECTION') || prompt.includes('web fetch tool');
-        const timeoutMs = isWebFetchOperation ? 120000 : 45000; // 2 minutes for web fetch, 45s for normal
+
+        // Use standard timeout for all requests
+        const timeoutMs = 60000; // 60 seconds timeout
         
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('API request timeout')), timeoutMs);
@@ -229,10 +247,17 @@ export class ClaudeService extends AIService {
 
         const attemptTime = Date.now() - attemptStartTime;
         const totalTime = Date.now() - requestStartTime;
-        
+
         // Reset failure counter on success
         ClaudeService.consecutiveFailures = 0;
-        
+
+        // Log cache usage information
+        const cacheInfo = {
+          cacheCreationTokens: (message.usage as any)?.cache_creation_input_tokens || 0,
+          cacheReadTokens: (message.usage as any)?.cache_read_input_tokens || 0,
+          regularInputTokens: message.usage?.input_tokens || 0
+        };
+
         logger.warn(`[ANTHROPIC_REQUEST_SUCCESS] Claude API request successful`, {
           requestId,
           attempt: attempt + 1,
@@ -241,6 +266,9 @@ export class ClaudeService extends AIService {
           totalTimeMs: totalTime,
           inputTokens: message.usage?.input_tokens,
           outputTokens: message.usage?.output_tokens,
+          cacheCreationTokens: cacheInfo.cacheCreationTokens,
+          cacheReadTokens: cacheInfo.cacheReadTokens,
+          cacheHit: cacheInfo.cacheReadTokens > 0,
           tokensPerSecond: message.usage?.output_tokens ? Math.round(message.usage.output_tokens / (attemptTime / 1000)) : null
         });
 
@@ -359,17 +387,22 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
   }
 
   // This method is called by the AIRequestQueue
-  async makeRequest(prompt: string): Promise<string> {
+  async makeRequest(promptData: string): Promise<string> {
     const requestId = Math.random().toString(36).substring(2, 15);
     const requestStartTime = Date.now();
-    
+
     try {
-      logger.debug(`[QUEUED_CLAUDE] Making direct API call`, {
+      // Parse the JSON-encoded prompt data
+      const promptParts: PromptParts = JSON.parse(promptData);
+
+      logger.debug(`[QUEUED_CLAUDE] Making direct API call with prompt caching`, {
         requestId,
-        promptLength: prompt.length,
+        systemPromptLength: promptParts.systemPrompt.length,
+        htmlContentLength: promptParts.htmlContent.length,
+        taskPromptLength: promptParts.taskPrompt.length,
         model: "claude-sonnet-4-5-20250929"
       });
-      
+
       const message = await this.anthropic.messages.create({
         model: "claude-sonnet-4-5-20250929",
         max_tokens: 20000,
@@ -377,7 +410,21 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
         messages: [
           {
             role: "user",
-            content: prompt
+            content: [
+              {
+                type: "text",
+                text: promptParts.systemPrompt
+              },
+              {
+                type: "text",
+                text: `HTML Content:\n${promptParts.htmlContent}`,
+                cache_control: { type: "ephemeral" }
+              },
+              {
+                type: "text",
+                text: promptParts.taskPrompt
+              }
+            ]
           }
         ],
       });
@@ -388,13 +435,23 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
       }
 
       const totalTime = Date.now() - requestStartTime;
-      
+
+      // Log cache usage information
+      const cacheInfo = {
+        cacheCreationTokens: (message.usage as any)?.cache_creation_input_tokens || 0,
+        cacheReadTokens: (message.usage as any)?.cache_read_input_tokens || 0,
+        regularInputTokens: message.usage?.input_tokens || 0
+      };
+
       logger.info(`[QUEUED_CLAUDE] API request successful`, {
         requestId,
         responseLength: response.text.length,
         totalTimeMs: totalTime,
         inputTokens: message.usage?.input_tokens,
-        outputTokens: message.usage?.output_tokens
+        outputTokens: message.usage?.output_tokens,
+        cacheCreationTokens: cacheInfo.cacheCreationTokens,
+        cacheReadTokens: cacheInfo.cacheReadTokens,
+        cacheHit: cacheInfo.cacheReadTokens > 0
       });
 
       return response.text;
@@ -409,13 +466,18 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
   }
 
   // Override to use the queue
-  protected async makeAIRequest(prompt: string): Promise<string> {
+  protected async makeAIRequest(promptParts: PromptParts | string): Promise<string> {
     if (!QueuedClaudeService.globalQueue) {
       throw new Error('AI request queue not initialized');
     }
-    
+
+    // Convert promptParts to JSON string for queue storage
+    const promptData = typeof promptParts === 'string'
+      ? promptParts
+      : JSON.stringify(promptParts);
+
     logger.debug(`[QUEUED_CLAUDE] Submitting request to queue`);
-    return QueuedClaudeService.globalQueue.enqueueRequest(prompt);
+    return QueuedClaudeService.globalQueue.enqueueRequest(promptData);
   }
 
   // Get queue status for monitoring
@@ -440,8 +502,17 @@ export class OpenAIService extends AIService {
     });
   }
 
-  protected async makeAIRequest(prompt: string): Promise<string> {
+  protected async makeAIRequest(promptParts: PromptParts | string): Promise<string> {
     try {
+      let userContent: string;
+
+      if (typeof promptParts === 'string') {
+        userContent = promptParts;
+      } else {
+        // Combine all parts for OpenAI (doesn't support prompt caching)
+        userContent = `${promptParts.systemPrompt}\n\nHTML Content:\n${promptParts.htmlContent}\n\n${promptParts.taskPrompt}`;
+      }
+
       const completion = await this.openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -451,7 +522,7 @@ export class OpenAIService extends AIService {
           },
           {
             role: "user",
-            content: prompt
+            content: userContent
           }
         ],
         temperature: 0.3,

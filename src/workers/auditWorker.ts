@@ -40,11 +40,8 @@ export const processAudit = async (job: Job<AuditJobData>): Promise<void> => {
       url: auditRequest.url,
       includeScreenshot: auditRequest.includeScreenshot
     });
-    const analysisStartTime = Date.now();
-    const websiteData = await websiteAnalyzer.analyze(
-      auditRequest.url, 
-      auditRequest.includeScreenshot
-    );
+
+    const websiteData = await websiteAnalyzer.analyze(auditRequest.url);
    // const analysisTime = Date.now() - analysisStartTime;
     logger.warn(`[AUDIT_WORKER_ANALYZE_COMPLETE] Website analysis completed`);
     await job.progress(40);

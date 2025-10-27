@@ -2,7 +2,10 @@ import { WebsiteData } from '../types/audit';
 import { EvaluationResult } from '../types/evaluator';
 import { EVALUATION_WEIGHTS } from '../utils/constants';
 import { logger } from '../utils/logger';
-import { ParallelEvaluationManager } from './parallelEvaluationManager';
+import { ValuePropositionEvaluator } from '../evaluators/valueProposition';
+import { FeaturesAndBenefitsEvaluator } from '../evaluators/featuresAndBenefits';
+import { CTAAnalysisEvaluator } from '../evaluators/ctaAnalysis';
+import { TrustSignalsEvaluator } from '../evaluators/trustSignals';
 
 export interface ScoringResult {
   overall: number;
@@ -13,24 +16,58 @@ export interface ScoringResult {
 }
 
 export class ScoringEngine {
-  private parallelEvaluationManager: ParallelEvaluationManager;
+  private valuePropositionEvaluator: ValuePropositionEvaluator;
+  private featuresAndBenefitsEvaluator: FeaturesAndBenefitsEvaluator;
+  private ctaAnalysisEvaluator: CTAAnalysisEvaluator;
+  private trustSignalsEvaluator: TrustSignalsEvaluator;
+  private readonly DELAY_BETWEEN_EVALUATIONS = 60000; // 60 seconds
 
   constructor() {
-    this.parallelEvaluationManager = new ParallelEvaluationManager();
+    this.valuePropositionEvaluator = new ValuePropositionEvaluator();
+    this.featuresAndBenefitsEvaluator = new FeaturesAndBenefitsEvaluator();
+    this.ctaAnalysisEvaluator = new CTAAnalysisEvaluator();
+    this.trustSignalsEvaluator = new TrustSignalsEvaluator();
   }
 
   async calculateScores(websiteData: WebsiteData): Promise<ScoringResult> {
+    const startTime = Date.now();
+
     try {
-      logger.warn(`Starting parallel evaluator scoring for: ${websiteData.url}`);
-      
-      // Execute all evaluators in parallel using the new parallel evaluation manager
-      const evaluationResults = await this.parallelEvaluationManager.evaluateInParallel(websiteData);
-      
-      // Extract non-null results or use fallback values
-      const valueProposition = evaluationResults.valueProposition || this.getFallbackResult('valueProposition');
-      const featuresAndBenefits = evaluationResults.featuresAndBenefits || this.getFallbackResult('featuresAndBenefits');
-      const ctaAnalysis = evaluationResults.ctaAnalysis || this.getFallbackResult('ctaAnalysis');
-      const trustSignals = evaluationResults.trustSignals || this.getFallbackResult('trustSignals');
+      logger.warn(`Starting sequential evaluator scoring for: ${websiteData.url}`);
+
+      // Execute all evaluators sequentially with 60-second delays between each
+      const valueProposition = await this.safeEvaluate(
+        'valueProposition',
+        this.valuePropositionEvaluator,
+        websiteData
+      );
+
+      await this.delay(this.DELAY_BETWEEN_EVALUATIONS);
+      logger.info(`[SCORING_ENGINE] Waited 60s before next evaluation`);
+
+      const featuresAndBenefits = await this.safeEvaluate(
+        'featuresAndBenefits',
+        this.featuresAndBenefitsEvaluator,
+        websiteData
+      );
+
+      await this.delay(this.DELAY_BETWEEN_EVALUATIONS);
+      logger.info(`[SCORING_ENGINE] Waited 60s before next evaluation`);
+
+      const ctaAnalysis = await this.safeEvaluate(
+        'ctaAnalysis',
+        this.ctaAnalysisEvaluator,
+        websiteData
+      );
+
+      await this.delay(this.DELAY_BETWEEN_EVALUATIONS);
+      logger.info(`[SCORING_ENGINE] Waited 60s before next evaluation`);
+
+      const trustSignals = await this.safeEvaluate(
+        'trustSignals',
+        this.trustSignalsEvaluator,
+        websiteData
+      );
 
       const overallScore = this.calculateOverallScore({
         valueProposition: valueProposition.score,
@@ -39,11 +76,11 @@ export class ScoringEngine {
         trustSignals: trustSignals.score,
       });
 
-      logger.warn(`Parallel evaluator scoring completed for: ${websiteData.url}`, {
+      const totalTime = Date.now() - startTime;
+      logger.warn(`Sequential evaluator scoring completed for: ${websiteData.url}`, {
         overallScore,
-        totalTimeMs: evaluationResults.totalTime,
-        successfulEvaluations: evaluationResults.successCount,
-        failedEvaluations: evaluationResults.failureCount
+        totalTimeMs: totalTime,
+        totalTimeMinutes: Math.round(totalTime / 60000)
       });
 
       return {
@@ -54,9 +91,35 @@ export class ScoringEngine {
         trustSignals,
       };
     } catch (error) {
-      logger.error('Parallel scoring evaluation failed:', error as Error);
+      logger.error('Sequential scoring evaluation failed:', error as Error);
       throw error;
     }
+  }
+
+  /**
+   * Safely execute an evaluation with error handling and fallback
+   */
+  private async safeEvaluate(
+    name: string,
+    evaluator: any,
+    websiteData: WebsiteData
+  ): Promise<EvaluationResult> {
+    try {
+      logger.warn(`[SCORING_ENGINE] Starting ${name} evaluation`);
+      const result = await evaluator.evaluate(websiteData);
+      logger.warn(`[SCORING_ENGINE] ${name} evaluation completed successfully`);
+      return result;
+    } catch (error) {
+      logger.error(`[SCORING_ENGINE] ${name} evaluation failed, using fallback:`, error as Error);
+      return this.getFallbackResult(name);
+    }
+  }
+
+  /**
+   * Delay utility function
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
 

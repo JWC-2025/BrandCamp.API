@@ -541,7 +541,7 @@ export class OpenAIService extends AIService {
             }
           ],
           temperature: 0.3,
-          max_tokens: 4000,
+          max_completion_tokens: 4000,
         });
 
         const response = completion.choices[0]?.message?.content;

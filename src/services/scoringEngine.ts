@@ -20,7 +20,7 @@ export class ScoringEngine {
   private featuresAndBenefitsEvaluator: FeaturesAndBenefitsEvaluator;
   private ctaAnalysisEvaluator: CTAAnalysisEvaluator;
   private trustSignalsEvaluator: TrustSignalsEvaluator;
-  private readonly DELAY_BETWEEN_EVALUATIONS = 60000; // 60 seconds
+  private readonly DELAY_BETWEEN_EVALUATIONS = 5000; // 5 seconds
 
   constructor() {
     this.valuePropositionEvaluator = new ValuePropositionEvaluator();
@@ -43,7 +43,7 @@ export class ScoringEngine {
       );
 
       await this.delay(this.DELAY_BETWEEN_EVALUATIONS);
-      logger.info(`[SCORING_ENGINE] Waited 60s before next evaluation`);
+      logger.info(`[SCORING_ENGINE] Waited ${this.DELAY_BETWEEN_EVALUATIONS / 1000}s before next evaluation`);
 
       const featuresAndBenefits = await this.safeEvaluate(
         'featuresAndBenefits',
@@ -52,7 +52,7 @@ export class ScoringEngine {
       );
 
       await this.delay(this.DELAY_BETWEEN_EVALUATIONS);
-      logger.info(`[SCORING_ENGINE] Waited 60s before next evaluation`);
+      logger.info(`[SCORING_ENGINE] Waited ${this.DELAY_BETWEEN_EVALUATIONS / 1000}s before next evaluation`);
 
       const ctaAnalysis = await this.safeEvaluate(
         'ctaAnalysis',
@@ -61,7 +61,7 @@ export class ScoringEngine {
       );
 
       await this.delay(this.DELAY_BETWEEN_EVALUATIONS);
-      logger.info(`[SCORING_ENGINE] Waited 60s before next evaluation`);
+      logger.info(`[SCORING_ENGINE] Waited ${this.DELAY_BETWEEN_EVALUATIONS / 1000}s before next evaluation`);
 
       const trustSignals = await this.safeEvaluate(
         'trustSignals',

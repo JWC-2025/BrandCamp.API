@@ -1,16 +1,16 @@
 import { WebsiteData } from '../types/audit';
 import { Evaluator, EvaluationResult } from '../types/evaluator';
-import { ClaudeService } from '../services/aiService';
+import { OpenAIService } from '../services/aiService';
 import { config } from '../config/environment';
 import { detectIndustry, getIndustryPrompt } from '../services/promptTemplates';
 
 export class ValuePropositionEvaluator implements Evaluator {
   name = 'Value Proposition';
-  private aiService: ClaudeService;
+  private aiService: OpenAIService;
 
   constructor() {
-    // Use Claude service in production, MockAI in development without API key
-    this.aiService = new ClaudeService(config.ai.anthropicApiKey)
+    // Use OpenAI service for higher rate limits and token maximums
+    this.aiService = new OpenAIService(config.ai.openaiApiKey)
   }
 
   async evaluate(websiteData: WebsiteData): Promise<EvaluationResult> {

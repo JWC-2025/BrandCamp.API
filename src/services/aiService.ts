@@ -494,6 +494,7 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
 // OpenAI Service Implementation
 export class OpenAIService extends AIService {
   private openai: OpenAI;
+  private static consecutiveFailures = 0;
 
   constructor(apiKey?: string) {
     super();
@@ -503,41 +504,151 @@ export class OpenAIService extends AIService {
   }
 
   protected async makeAIRequest(promptParts: PromptParts | string): Promise<string> {
-    try {
-      let userContent: string;
+    const maxRetries = 2;
+    let attempt = 0;
+    const requestId = Math.random().toString(36).substring(2, 15);
+    const requestStartTime = Date.now();
 
-      if (typeof promptParts === 'string') {
-        userContent = promptParts;
-      } else {
-        // Combine all parts for OpenAI (doesn't support prompt caching)
-        userContent = `${promptParts.systemPrompt}\n\nHTML Content:\n${promptParts.htmlContent}\n\n${promptParts.taskPrompt}`;
+    while (attempt < maxRetries) {
+      const attemptStartTime = Date.now();
+      try {
+        let userContent: string;
+
+        if (typeof promptParts === 'string') {
+          userContent = promptParts;
+        } else {
+          // Combine all parts for OpenAI
+          userContent = `${promptParts.systemPrompt}\n\nHTML Content:\n${promptParts.htmlContent}\n\n${promptParts.taskPrompt}`;
+        }
+
+        logger.warn(`[OPENAI_API_CALL] Making API call to OpenAI`, {
+          requestId,
+          attempt: attempt + 1,
+          contentLength: userContent.length,
+          model: "gpt-5"
+        });
+
+        const completion = await this.openai.chat.completions.create({
+          model: "gpt-5",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert marketing analyst and web performance specialist. Provide thorough, actionable analysis in the exact JSON format requested."
+            },
+            {
+              role: "user",
+              content: userContent
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 4000,
+        });
+
+        const response = completion.choices[0]?.message?.content;
+        if (!response) {
+          throw new Error('No response from OpenAI');
+        }
+
+        const attemptTime = Date.now() - attemptStartTime;
+        const totalTime = Date.now() - requestStartTime;
+
+        // Reset failure counter on success
+        OpenAIService.consecutiveFailures = 0;
+
+        logger.warn(`[OPENAI_REQUEST_SUCCESS] OpenAI API request successful`, {
+          requestId,
+          attempt: attempt + 1,
+          responseLength: response.length,
+          attemptTimeMs: attemptTime,
+          totalTimeMs: totalTime,
+          promptTokens: completion.usage?.prompt_tokens,
+          completionTokens: completion.usage?.completion_tokens,
+          totalTokens: completion.usage?.total_tokens
+        });
+
+        return response;
+      } catch (error: unknown) {
+        attempt++;
+        const attemptTime = Date.now() - attemptStartTime;
+        const apiError = error as { status?: number; message?: string };
+        const errorMessage = apiError?.message || (error as Error).message;
+        const statusCode = apiError?.status;
+
+        // Track consecutive failures
+        OpenAIService.consecutiveFailures++;
+
+        logger.warn(`[OPENAI_REQUEST_ERROR] OpenAI API request failed`, {
+          requestId,
+          attempt,
+          maxRetries,
+          attemptTimeMs: attemptTime,
+          errorMessage,
+          statusCode,
+          consecutiveFailures: OpenAIService.consecutiveFailures
+        });
+
+        // Determine if should retry
+        const isRetryableError = this.isRetryableError(error as Error, statusCode);
+        const isLastAttempt = attempt >= maxRetries;
+
+        if (!isRetryableError || isLastAttempt) {
+          logger.error(`[OPENAI_REQUEST_FAILED] OpenAI API request failed permanently`, error as Error, {
+            requestId,
+            finalAttempt: attempt,
+            totalTimeMs: Date.now() - requestStartTime,
+            isRetryableError,
+            isLastAttempt,
+            consecutiveFailures: OpenAIService.consecutiveFailures
+          });
+          throw new Error(`OpenAI API request failed: ${errorMessage} (attempt ${attempt}/${maxRetries})`);
+        }
+
+        // Calculate backoff time
+        const baseBackoff = statusCode === 429 ? 10000 : 2000;
+        const backoffTime = Math.min(baseBackoff * Math.pow(2, attempt - 1), 30000); // Max 30s
+
+        logger.warn(`[OPENAI_RETRY] Retrying OpenAI API request`, {
+          requestId,
+          attempt,
+          maxRetries,
+          backoffTimeMs: backoffTime,
+          statusCode,
+          retryReason: 'retryable_error'
+        });
+
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
       }
-
-      const completion = await this.openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert marketing analyst and web performance specialist. Provide thorough, actionable analysis in the exact JSON format requested."
-          },
-          {
-            role: "user",
-            content: userContent
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 4000,
-      });
-
-      const response = completion.choices[0]?.message?.content;
-      if (!response) {
-        throw new Error('No response from OpenAI');
-      }
-
-      return response;
-    } catch (error) {
-      logger.error('OpenAI API request failed:', error as Error);
-      throw error;
     }
+
+    const totalTime = Date.now() - requestStartTime;
+    logger.error(`[OPENAI_MAX_RETRIES] Max retries exceeded for OpenAI API request`, undefined, {
+      requestId,
+      maxRetries,
+      totalTimeMs: totalTime,
+      consecutiveFailures: OpenAIService.consecutiveFailures
+    });
+    throw new Error(`Max retries (${maxRetries}) exceeded for OpenAI API request`);
+  }
+
+  /**
+   * Determine if an error is retryable
+   */
+  private isRetryableError(error: Error, statusCode?: number): boolean {
+    const message = error.message.toLowerCase();
+
+    // Retry specific status codes
+    if (statusCode === 429 || statusCode === 502 || statusCode === 503 || statusCode === 504) return true;
+
+    // Retry timeout and network errors
+    if (message.includes('timeout') ||
+        message.includes('network') ||
+        message.includes('connect') ||
+        message.includes('econnreset') ||
+        message.includes('socket hang up')) return true;
+
+    // Don't retry authentication or validation errors
+    if (statusCode === 400 || statusCode === 401 || statusCode === 403) return false;
+
+    return false;
   }
 }

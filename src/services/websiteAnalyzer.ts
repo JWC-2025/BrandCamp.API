@@ -50,47 +50,93 @@ export class WebsiteAnalyzer {
     options: FetchOptions = {}
   ): Promise<ProcessedHTML> {
     const {
-      timeout = 10000,
+      timeout = 30000, // 30 seconds for large websites
       maxContentLength = 200000, // ~50k tokens
       userAgent = 'Mozilla/5.0 (compatible; CTAAnalyzer/1.0)'
     } = options;
 
-    try {
-      // Fetch with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const maxRetries = 2;
+    let attempt = 0;
 
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': userAgent,
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      });
+    while (attempt < maxRetries) {
+      const startTime = Date.now();
+      try {
+        attempt++;
+        logger.warn(`[FETCH_HTML] Fetching HTML for ${url} (attempt ${attempt}/${maxRetries})`, {
+          timeout,
+          maxContentLength
+        });
 
-      clearTimeout(timeoutId);
+        // Fetch with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': userAgent,
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+        });
 
-      const html = await response.text();
+        clearTimeout(timeoutId);
 
-      // Process the HTML
-      const processed = this.processHTML(html, url, maxContentLength);
-
-      return processed;
-
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          throw new Error(`Request timeout after ${timeout}ms`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        throw new Error(`Failed to fetch ${url}: ${error.message}`);
+
+        const html = await response.text();
+        const fetchTime = Date.now() - startTime;
+
+        logger.warn(`[FETCH_HTML_SUCCESS] Successfully fetched HTML for ${url}`, {
+          attempt,
+          fetchTimeMs: fetchTime,
+          htmlLength: html.length,
+          statusCode: response.status
+        });
+
+        // Process the HTML
+        const processed = this.processHTML(html, url, maxContentLength);
+
+        return processed;
+
+      } catch (error) {
+        const fetchTime = Date.now() - startTime;
+
+        if (error instanceof Error) {
+          const isTimeout = error.name === 'AbortError';
+          const isLastAttempt = attempt >= maxRetries;
+
+          logger.warn(`[FETCH_HTML_ERROR] Failed to fetch HTML for ${url}`, {
+            attempt,
+            maxRetries,
+            fetchTimeMs: fetchTime,
+            errorName: error.name,
+            errorMessage: error.message,
+            isTimeout,
+            isLastAttempt
+          });
+
+          // Retry on timeout or network errors
+          if (!isLastAttempt && (isTimeout || error.message.includes('network') || error.message.includes('ECONNRESET'))) {
+            const backoffTime = 2000 * attempt; // 2s, 4s
+            logger.info(`[FETCH_HTML_RETRY] Retrying after ${backoffTime}ms`);
+            await new Promise(resolve => setTimeout(resolve, backoffTime));
+            continue;
+          }
+
+          // Final error
+          if (isTimeout) {
+            throw new Error(`Request timeout after ${timeout}ms (tried ${attempt} times)`);
+          }
+          throw new Error(`Failed to fetch ${url}: ${error.message} (tried ${attempt} times)`);
+        }
+        throw error;
       }
-      throw error;
     }
+
+    throw new Error(`Failed to fetch ${url} after ${maxRetries} attempts`);
   }
 
   private processHTML(html: string, url: string, maxLength: number): ProcessedHTML {

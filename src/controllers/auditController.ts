@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuditRequest, AuditSubmissionResponse, AuditStatusResponse, AuditJobData } from '../types/audit';
-import { auditQueue } from '../config/queue';
+import { getAuditQueue } from '../config/queue';
 import { AuditRepository } from '../repositories/auditRepository';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
@@ -54,14 +54,15 @@ export const createAudit = async (
         backoff: 'exponential'
       });
 
-      await auditQueue.add('process-audit', jobData, {
+      const queue = await getAuditQueue();
+      await queue.add('process-audit', jobData, {
         attempts: 3,
         backoff: {
           type: 'exponential',
           delay: 2000,
         },
       });
-      
+
       logger.info(`[AUDIT_QUEUE] Audit job queued successfully for ID: ${auditId}`);
     }
 
@@ -370,8 +371,11 @@ export const createBulkAudit = async (
 
     // Check if there are any audits currently processing
     const hasProcessingAudits = await auditRepository.hasProcessingAudits();
-    
+
     if (!hasProcessingAudits) {
+      // Get the queue once before the loop
+      const queue = await getAuditQueue();
+
       // Queue jobs for the created audits
       for (const auditId of auditIds) {
         try {
@@ -386,7 +390,7 @@ export const createBulkAudit = async (
               },
             };
 
-            await auditQueue.add('process-audit', jobData, {
+            await queue.add('process-audit', jobData, {
               attempts: 3,
               backoff: {
                 type: 'exponential',

@@ -158,10 +158,21 @@ ${specificPrompt}`;
   }
 }
 
+// Circuit breaker states
+enum CircuitState {
+  CLOSED = 'CLOSED',     // Normal operation
+  OPEN = 'OPEN',         // Circuit is open, requests are blocked
+  HALF_OPEN = 'HALF_OPEN' // Testing if service has recovered
+}
+
 // Claude AI Service Implementation
 export class ClaudeService extends AIService {
   private anthropic: Anthropic;
   private static consecutiveFailures = 0;
+  private static circuitState: CircuitState = CircuitState.CLOSED;
+  private static circuitOpenedAt: number | null = null;
+  private static readonly FAILURE_THRESHOLD = 5;
+  private static readonly CIRCUIT_TIMEOUT = 60000; // 60 seconds
 
   constructor(apiKey?: string) {
     super();
@@ -170,7 +181,68 @@ export class ClaudeService extends AIService {
     });
   }
 
+  /**
+   * Check if circuit breaker allows request
+   */
+  private checkCircuitBreaker(): void {
+    // If circuit is closed, allow request
+    if (ClaudeService.circuitState === CircuitState.CLOSED) {
+      return;
+    }
+
+    // If circuit is open, check if timeout has elapsed
+    if (ClaudeService.circuitState === CircuitState.OPEN) {
+      const now = Date.now();
+      const timeoutElapsed = ClaudeService.circuitOpenedAt && (now - ClaudeService.circuitOpenedAt) >= ClaudeService.CIRCUIT_TIMEOUT;
+
+      if (timeoutElapsed) {
+        logger.warn('[CIRCUIT_BREAKER] Entering HALF_OPEN state to test service recovery');
+        ClaudeService.circuitState = CircuitState.HALF_OPEN;
+        return;
+      }
+
+      // Circuit is still open, throw error
+      const waitTime = ClaudeService.circuitOpenedAt
+        ? Math.ceil((ClaudeService.CIRCUIT_TIMEOUT - (now - ClaudeService.circuitOpenedAt)) / 1000)
+        : 0;
+      throw new Error(`Circuit breaker OPEN: Claude API is experiencing issues. Please try again in ${waitTime} seconds.`);
+    }
+
+    // If circuit is half-open, allow one test request
+    // (state will be updated based on the result)
+  }
+
+  /**
+   * Update circuit breaker state after request
+   */
+  private updateCircuitBreakerOnSuccess(): void {
+    if (ClaudeService.circuitState === CircuitState.HALF_OPEN) {
+      logger.warn('[CIRCUIT_BREAKER] Test request succeeded, closing circuit');
+      ClaudeService.circuitState = CircuitState.CLOSED;
+    }
+    ClaudeService.consecutiveFailures = 0;
+  }
+
+  /**
+   * Update circuit breaker state after failure
+   */
+  private updateCircuitBreakerOnFailure(): void {
+    ClaudeService.consecutiveFailures++;
+
+    if (ClaudeService.circuitState === CircuitState.HALF_OPEN) {
+      logger.warn('[CIRCUIT_BREAKER] Test request failed, reopening circuit');
+      ClaudeService.circuitState = CircuitState.OPEN;
+      ClaudeService.circuitOpenedAt = Date.now();
+    } else if (ClaudeService.consecutiveFailures >= ClaudeService.FAILURE_THRESHOLD) {
+      logger.error(`[CIRCUIT_BREAKER] Opening circuit after ${ClaudeService.consecutiveFailures} consecutive failures`);
+      ClaudeService.circuitState = CircuitState.OPEN;
+      ClaudeService.circuitOpenedAt = Date.now();
+    }
+  }
+
   protected async makeAIRequest(promptParts: PromptParts | string): Promise<string> {
+    // Check circuit breaker before making request
+    this.checkCircuitBreaker();
     const maxRetries = 1;
     let attempt = 0;
     const requestId = Math.random().toString(36).substring(2, 15);
@@ -179,6 +251,7 @@ export class ClaudeService extends AIService {
 
     while (attempt < maxRetries) {
       const attemptStartTime = Date.now();
+      let timeoutId: NodeJS.Timeout | undefined;
       try {
 
         logger.warn(`[ANTHROPIC_API_CALL] Making API call to Claude with prompt caching`);
@@ -224,13 +297,16 @@ export class ClaudeService extends AIService {
 
         // Use standard timeout for all requests
         const timeoutMs = 60000; // 60 seconds timeout
-        
+
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('API request timeout')), timeoutMs);
+          timeoutId = setTimeout(() => reject(new Error('API request timeout')), timeoutMs);
         });
-        
+
         const message = await Promise.race([apiCallPromise, timeoutPromise]);
-        
+
+        // Clear timeout on success to prevent promise leak
+        if (timeoutId) clearTimeout(timeoutId);
+
         // Validate response structure
         if (!message || !message.content || message.content.length === 0) {
           throw new Error('Empty response from Claude API');
@@ -248,8 +324,8 @@ export class ClaudeService extends AIService {
         const attemptTime = Date.now() - attemptStartTime;
         const totalTime = Date.now() - requestStartTime;
 
-        // Reset failure counter on success
-        ClaudeService.consecutiveFailures = 0;
+        // Update circuit breaker on success
+        this.updateCircuitBreakerOnSuccess();
 
         // Log cache usage information
         const cacheInfo = {
@@ -274,16 +350,16 @@ export class ClaudeService extends AIService {
 
         return response.text;
       } catch (error: unknown) {
+        // Clear timeout on error to prevent promise leak
+        if (timeoutId) clearTimeout(timeoutId);
+
         attempt++;
         const attemptTime = Date.now() - attemptStartTime;
         const apiError = error as { error?: { type?: string; message?: string }; status?: number };
         const errorMessage = apiError?.error?.message || (error as Error).message;
         const errorType = apiError?.error?.type || 'unknown';
         const statusCode = apiError?.status;
-        
-        // Track consecutive failures
-        ClaudeService.consecutiveFailures++;
-        
+
         logger.warn(`[ANTHROPIC_REQUEST_ERROR] Claude API request failed`, {
           requestId,
           attempt,
@@ -294,19 +370,23 @@ export class ClaudeService extends AIService {
           statusCode,
           consecutiveFailures: ClaudeService.consecutiveFailures
         });
-        
+
         // Determine if should retry
         const isRetryableError = this.isRetryableError(error as Error, errorType, statusCode);
         const isLastAttempt = attempt >= maxRetries;
-        
+
         if (!isRetryableError || isLastAttempt) {
+          // Update circuit breaker on failure (only when giving up on retries)
+          this.updateCircuitBreakerOnFailure();
+
           logger.error(`[ANTHROPIC_REQUEST_FAILED] Claude API request failed permanently`, error as Error, {
             requestId,
             finalAttempt: attempt,
             totalTimeMs: Date.now() - requestStartTime,
             isRetryableError,
             isLastAttempt,
-            consecutiveFailures: ClaudeService.consecutiveFailures
+            consecutiveFailures: ClaudeService.consecutiveFailures,
+            circuitState: ClaudeService.circuitState
           });
           throw new Error(`Claude API request failed: ${errorMessage} (attempt ${attempt}/${maxRetries})`);
         }
@@ -495,6 +575,10 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
 export class OpenAIService extends AIService {
   private openai: OpenAI;
   private static consecutiveFailures = 0;
+  private static circuitState: CircuitState = CircuitState.CLOSED;
+  private static circuitOpenedAt: number | null = null;
+  private static readonly FAILURE_THRESHOLD = 5;
+  private static readonly CIRCUIT_TIMEOUT = 60000; // 60 seconds
 
   constructor(apiKey?: string) {
     super();
@@ -503,7 +587,68 @@ export class OpenAIService extends AIService {
     });
   }
 
+  /**
+   * Check if circuit breaker allows request
+   */
+  private checkCircuitBreaker(): void {
+    // If circuit is closed, allow request
+    if (OpenAIService.circuitState === CircuitState.CLOSED) {
+      return;
+    }
+
+    // If circuit is open, check if timeout has elapsed
+    if (OpenAIService.circuitState === CircuitState.OPEN) {
+      const now = Date.now();
+      const timeoutElapsed = OpenAIService.circuitOpenedAt && (now - OpenAIService.circuitOpenedAt) >= OpenAIService.CIRCUIT_TIMEOUT;
+
+      if (timeoutElapsed) {
+        logger.warn('[CIRCUIT_BREAKER] Entering HALF_OPEN state to test service recovery');
+        OpenAIService.circuitState = CircuitState.HALF_OPEN;
+        return;
+      }
+
+      // Circuit is still open, throw error
+      const waitTime = OpenAIService.circuitOpenedAt
+        ? Math.ceil((OpenAIService.CIRCUIT_TIMEOUT - (now - OpenAIService.circuitOpenedAt)) / 1000)
+        : 0;
+      throw new Error(`Circuit breaker OPEN: OpenAI API is experiencing issues. Please try again in ${waitTime} seconds.`);
+    }
+
+    // If circuit is half-open, allow one test request
+    // (state will be updated based on the result)
+  }
+
+  /**
+   * Update circuit breaker state after request
+   */
+  private updateCircuitBreakerOnSuccess(): void {
+    if (OpenAIService.circuitState === CircuitState.HALF_OPEN) {
+      logger.warn('[CIRCUIT_BREAKER] Test request succeeded, closing circuit');
+      OpenAIService.circuitState = CircuitState.CLOSED;
+    }
+    OpenAIService.consecutiveFailures = 0;
+  }
+
+  /**
+   * Update circuit breaker state after failure
+   */
+  private updateCircuitBreakerOnFailure(): void {
+    OpenAIService.consecutiveFailures++;
+
+    if (OpenAIService.circuitState === CircuitState.HALF_OPEN) {
+      logger.warn('[CIRCUIT_BREAKER] Test request failed, reopening circuit');
+      OpenAIService.circuitState = CircuitState.OPEN;
+      OpenAIService.circuitOpenedAt = Date.now();
+    } else if (OpenAIService.consecutiveFailures >= OpenAIService.FAILURE_THRESHOLD) {
+      logger.error(`[CIRCUIT_BREAKER] Opening circuit after ${OpenAIService.consecutiveFailures} consecutive failures`);
+      OpenAIService.circuitState = CircuitState.OPEN;
+      OpenAIService.circuitOpenedAt = Date.now();
+    }
+  }
+
   protected async makeAIRequest(promptParts: PromptParts | string): Promise<string> {
+    // Check circuit breaker before making request
+    this.checkCircuitBreaker();
     const maxRetries = 2;
     let attempt = 0;
     const requestId = Math.random().toString(36).substring(2, 15);
@@ -528,20 +673,42 @@ export class OpenAIService extends AIService {
           model: "gpt-5"
         });
 
-        const completion = await this.openai.chat.completions.create({
-          model: "gpt-5",
-          messages: [
-            {
-              role: "system",
-              content: "You are an expert marketing analyst and web performance specialist. Provide thorough, actionable analysis in the exact JSON format requested."
-            },
-            {
-              role: "user",
-              content: userContent
-            }
-          ],
-          max_completion_tokens: 4000
-        });
+        // Add timeout wrapper with AbortController
+        const timeoutMs = 60000; // 60 seconds timeout
+        const abortController = new AbortController();
+
+        const timeoutId = setTimeout(() => {
+          abortController.abort();
+        }, timeoutMs);
+
+        let completion;
+        try {
+          completion = await this.openai.chat.completions.create({
+            model: "gpt-5",
+            messages: [
+              {
+                role: "system",
+                content: "You are an expert marketing analyst and web performance specialist. Provide thorough, actionable analysis in the exact JSON format requested."
+              },
+              {
+                role: "user",
+                content: userContent
+              }
+            ],
+            max_completion_tokens: 4000
+          }, {
+            signal: abortController.signal
+          });
+
+          // Clear timeout on success
+          clearTimeout(timeoutId);
+        } catch (error) {
+          clearTimeout(timeoutId);
+          if (abortController.signal.aborted) {
+            throw new Error('OpenAI API request timeout');
+          }
+          throw error;
+        }
 
         const response = completion.choices[0]?.message?.content;
         if (!response) {
@@ -551,8 +718,8 @@ export class OpenAIService extends AIService {
         const attemptTime = Date.now() - attemptStartTime;
         const totalTime = Date.now() - requestStartTime;
 
-        // Reset failure counter on success
-        OpenAIService.consecutiveFailures = 0;
+        // Update circuit breaker on success
+        this.updateCircuitBreakerOnSuccess();
 
         logger.warn(`[OPENAI_REQUEST_SUCCESS] OpenAI API request successful`, {
           requestId,
@@ -573,9 +740,6 @@ export class OpenAIService extends AIService {
         const errorMessage = apiError?.message || (error as Error).message;
         const statusCode = apiError?.status;
 
-        // Track consecutive failures
-        OpenAIService.consecutiveFailures++;
-
         logger.warn(`[OPENAI_REQUEST_ERROR] OpenAI API request failed`, {
           requestId,
           attempt,
@@ -591,13 +755,17 @@ export class OpenAIService extends AIService {
         const isLastAttempt = attempt >= maxRetries;
 
         if (!isRetryableError || isLastAttempt) {
+          // Update circuit breaker on failure (only when giving up on retries)
+          this.updateCircuitBreakerOnFailure();
+
           logger.error(`[OPENAI_REQUEST_FAILED] OpenAI API request failed permanently`, error as Error, {
             requestId,
             finalAttempt: attempt,
             totalTimeMs: Date.now() - requestStartTime,
             isRetryableError,
             isLastAttempt,
-            consecutiveFailures: OpenAIService.consecutiveFailures
+            consecutiveFailures: OpenAIService.consecutiveFailures,
+            circuitState: OpenAIService.circuitState
           });
           throw new Error(`OpenAI API request failed: ${errorMessage} (attempt ${attempt}/${maxRetries})`);
         }

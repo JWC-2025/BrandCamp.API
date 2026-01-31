@@ -31,7 +31,7 @@ const createRedisConnection = (): Redis => {
 const isRedisAvailable = async (): Promise<boolean> => {
   try {
     const testRedis = createRedisConnection();
-    
+
     await testRedis.connect();
     await testRedis.ping();
     testRedis.disconnect();
@@ -44,9 +44,10 @@ const isRedisAvailable = async (): Promise<boolean> => {
 
 // Create Redis connection only if available
 let redis: Redis | null = null;
-let auditQueue: Bull.Queue;
+let auditQueue: Bull.Queue | null = null;
+let initializationPromise: Promise<void> | null = null;
 
-const initializeQueue = async () => {
+const initializeQueue = async (): Promise<void> => {
   const redisAvailable = await isRedisAvailable();
   
   if (redisAvailable) {
@@ -166,12 +167,44 @@ const initializeQueue = async () => {
   });
 };
 
-// Initialize queue
-initializeQueue().catch(err => {
-  logger.error('Failed to initialize queue:', err);
-});
+/**
+ * Get the audit queue, initializing it if necessary.
+ * This lazy initialization prevents race conditions where the queue
+ * is accessed before initialization completes.
+ */
+export const getAuditQueue = async (): Promise<Bull.Queue> => {
+  // If already initialized, return immediately
+  if (auditQueue) {
+    return auditQueue;
+  }
+
+  // If initialization is in progress, wait for it
+  if (initializationPromise) {
+    await initializationPromise;
+    if (!auditQueue) {
+      throw new Error('Queue initialization failed');
+    }
+    return auditQueue;
+  }
+
+  // Start initialization
+  initializationPromise = initializeQueue();
+
+  try {
+    await initializationPromise;
+    if (!auditQueue) {
+      throw new Error('Queue initialization failed');
+    }
+    return auditQueue;
+  } catch (err) {
+    logger.error('Failed to initialize queue:', err);
+    initializationPromise = null;
+    throw err;
+  }
+};
 
 export { redis };
+// Deprecated: Use getAuditQueue() instead to avoid race conditions
 export { auditQueue };
 
 export const closeQueue = async (): Promise<void> => {

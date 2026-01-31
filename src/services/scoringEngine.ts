@@ -21,15 +21,74 @@ export class ScoringEngine {
   private ctaAnalysisEvaluator: CTAAnalysisEvaluator;
   private trustSignalsEvaluator: TrustSignalsEvaluator;
   private readonly DELAY_BETWEEN_EVALUATIONS = 5000; // 5 seconds
+  private readonly useParallelEvaluations: boolean;
 
-  constructor() {
+  constructor(useParallelEvaluations: boolean = true) {
     this.valuePropositionEvaluator = new ValuePropositionEvaluator();
     this.featuresAndBenefitsEvaluator = new FeaturesAndBenefitsEvaluator();
     this.ctaAnalysisEvaluator = new CTAAnalysisEvaluator();
     this.trustSignalsEvaluator = new TrustSignalsEvaluator();
+    this.useParallelEvaluations = useParallelEvaluations;
   }
 
   async calculateScores(websiteData: WebsiteData): Promise<ScoringResult> {
+    if (this.useParallelEvaluations) {
+      return this.calculateScoresParallel(websiteData);
+    } else {
+      return this.calculateScoresSequential(websiteData);
+    }
+  }
+
+  /**
+   * Run all evaluations in parallel for faster processing.
+   * The AI request queue will handle rate limiting automatically.
+   */
+  private async calculateScoresParallel(websiteData: WebsiteData): Promise<ScoringResult> {
+    const startTime = Date.now();
+
+    try {
+      logger.warn(`Starting parallel evaluator scoring for: ${websiteData.url}`);
+
+      // Execute all evaluators in parallel
+      const [valueProposition, featuresAndBenefits, ctaAnalysis, trustSignals] = await Promise.all([
+        this.safeEvaluate('valueProposition', this.valuePropositionEvaluator, websiteData),
+        this.safeEvaluate('featuresAndBenefits', this.featuresAndBenefitsEvaluator, websiteData),
+        this.safeEvaluate('ctaAnalysis', this.ctaAnalysisEvaluator, websiteData),
+        this.safeEvaluate('trustSignals', this.trustSignalsEvaluator, websiteData),
+      ]);
+
+      const overallScore = this.calculateOverallScore({
+        valueProposition: valueProposition.score,
+        featuresAndBenefits: featuresAndBenefits.score,
+        ctaAnalysis: ctaAnalysis.score,
+        trustSignals: trustSignals.score,
+      });
+
+      const totalTime = Date.now() - startTime;
+      logger.warn(`Parallel evaluator scoring completed for: ${websiteData.url}`, {
+        overallScore,
+        totalTimeMs: totalTime,
+        totalTimeMinutes: Math.round(totalTime / 60000)
+      });
+
+      return {
+        overall: overallScore,
+        valueProposition,
+        featuresAndBenefits,
+        ctaAnalysis,
+        trustSignals,
+      };
+    } catch (error) {
+      logger.error('Parallel scoring evaluation failed:', error as Error);
+      throw error;
+    }
+  }
+
+  /**
+   * Run evaluations sequentially with delays (legacy mode).
+   * Use this if parallel execution causes issues.
+   */
+  private async calculateScoresSequential(websiteData: WebsiteData): Promise<ScoringResult> {
     const startTime = Date.now();
 
     try {

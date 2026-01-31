@@ -2,7 +2,7 @@ import app from './app';
 import { connectDatabase } from './config/database';
 import { runMigrations } from './utils/migrations';
 import { setupAuditWorker } from './workers/auditWorker';
-import { auditQueue, closeQueue } from './config/queue';
+import { getAuditQueue, closeQueue } from './config/queue';
 import { logger } from './utils/logger';
 
 const PORT = process.env.PORT || 3000;
@@ -14,10 +14,11 @@ async function startServer() {
     
     // Run database migrations
     await runMigrations();
-    
+
     // Setup queue worker
-    await setupAuditWorker(auditQueue);
-    
+    const queue = await getAuditQueue();
+    await setupAuditWorker(queue);
+
     // Start HTTP server
     const server = app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);

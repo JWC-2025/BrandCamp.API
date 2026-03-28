@@ -62,9 +62,53 @@ export interface AuditJobData {
   auditRequest: AuditRequest;
 }
 
+export interface BrandingProfile {
+  colorScheme?: 'light' | 'dark';
+  logo?: string;
+  colors?: {
+    primary?: string;
+    secondary?: string;
+    accent?: string;
+    background?: string;
+    [key: string]: string | undefined;
+  };
+  fonts?: string[];
+  typography?: {
+    fontFamilies?: string[];
+    sizes?: Record<string, string>;
+    weights?: Record<string, string>;
+    lineHeights?: Record<string, string>;
+  };
+  spacing?: {
+    baseUnit?: string;
+    borderRadius?: string;
+    padding?: Record<string, string>;
+    margins?: Record<string, string>;
+  };
+  components?: {
+    buttons?: Record<string, string>;
+    inputs?: Record<string, string>;
+  };
+  icons?: Record<string, string>;
+  images?: {
+    logo?: string;
+    favicon?: string;
+    ogImage?: string;
+  };
+  animations?: Record<string, string>;
+  layout?: Record<string, string>;
+  personality?: {
+    tone?: string;
+    energy?: string;
+    targetAudience?: string[];
+    [key: string]: string | string[] | undefined;
+  };
+}
+
 export interface WebsiteData {
   url: string;
   html: string;
+  branding?: BrandingProfile;
   metadata: {
     title: string;
     description: string;

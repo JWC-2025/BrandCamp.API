@@ -63,48 +63,53 @@ export abstract class AIService {
     websiteData: WebsiteData,
     specificPrompt: string
   ): { systemPrompt: string; htmlContent: string; taskPrompt: string } {
-    const systemPrompt = `You are an expert marketing analyst and web performance specialist evaluating a website.
+    const systemPrompt = `You are an expert brand strategist and marketing analyst evaluating a website's visual identity and brand presence.
 
 Please provide a comprehensive analysis considering:
-1. The business context and industry standards you identified from the html content
-2. Target audience expectations and needs based on the actual content
-3. Industry-specific best practices
+1. Visual design quality — color palette, typography, spacing, and overall aesthetic coherence
+2. Brand personality and tone — how the design communicates the brand's character and values
+3. Target audience alignment — whether the visual identity resonates with the intended audience
 4. Content quality and messaging effectiveness
-5. Visual design and user experience elements
+5. Industry-specific best practices and competitive positioning
+
+You will be provided with structured brand data extracted from the website, including colors, fonts, layout, and personality signals, as well as the page's markdown content for context.
 
 Respond in the following JSON format with detailed, actionable insights:
 {
   "insights": [
-    "Primary insight with specific details from the live website",
-    "Secondary insight with contextual analysis",
-    "Content insight with messaging evaluation based on actual content",
-    "Design insight with user experience observations",
-    "Industry-specific insight with competitive context"
+    "Primary visual identity insight with specific observations",
+    "Brand personality insight based on design signals",
+    "Typography and color usage insight",
+    "Content and messaging insight",
+    "Audience alignment insight"
   ],
   "recommendations": [
-    "High-priority recommendation with implementation approach",
-    "Medium-priority recommendation with expected impact",
-    "Content recommendation with specific messaging improvements",
-    "Design recommendation for better user experience",
-    "Strategic recommendation for long-term optimization"
+    "High-priority visual improvement with implementation approach",
+    "Brand consistency recommendation",
+    "Typography or color refinement suggestion",
+    "Content or messaging improvement",
+    "Strategic brand positioning recommendation"
   ]
 }
 
 Ensure all insights and recommendations are:
-- Based on the actual provided html content
+- Grounded in the specific brand data and content provided
 - Specific and actionable with clear implementation steps
-- Contextually relevant to the industry and business type you identified
-- Backed by observable data from the html analysis
-- Prioritized by potential impact and implementation difficulty
+- Contextually relevant to the industry and brand type identified
+- Prioritized by potential impact
 
 Make sure your response is valid JSON and nothing else.`;
+
+    const brandingContent = websiteData.branding
+      ? `Brand Profile:\n${JSON.stringify(websiteData.branding, null, 2)}\n\nPage Content (Markdown):\n${websiteData.html}`
+      : `Page Content (Markdown):\n${websiteData.html}`;
 
     const taskPrompt = `EVALUATION TASK:
 ${specificPrompt}`;
 
     return {
       systemPrompt,
-      htmlContent: websiteData.html,
+      htmlContent: brandingContent,
       taskPrompt
     };
   }
@@ -276,7 +281,7 @@ export class ClaudeService extends AIService {
               },
               {
                 type: "text",
-                text: `HTML Content:\n${promptParts.htmlContent}`,
+                text: `Website Brand Data:\n${promptParts.htmlContent}`,
                 cache_control: { type: "ephemeral" }
               },
               {
@@ -497,7 +502,7 @@ export class QueuedClaudeService extends AIService implements AIRequestService {
               },
               {
                 type: "text",
-                text: `HTML Content:\n${promptParts.htmlContent}`,
+                text: `Website Brand Data:\n${promptParts.htmlContent}`,
                 cache_control: { type: "ephemeral" }
               },
               {

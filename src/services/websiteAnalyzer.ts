@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { WebsiteData, BrandingProfile } from '../types/audit';
 import { logger } from '../utils/logger';
 import { ERROR_MESSAGES } from '../utils/constants';
@@ -21,23 +22,16 @@ export class WebsiteAnalyzer {
 
     logger.warn(`[FIRECRAWL] Submitting async scrape job for: ${url}`);
 
-    const submitResponse = await fetch('https://api.firecrawl.dev/v2/batch/scrape', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        urls: [url],
-        formats: ['branding', 'markdown'],
-      }),
-    });
+    const headers = {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    };
 
-    if (!submitResponse.ok) {
-      throw new Error(`Firecrawl API error: ${submitResponse.status} ${submitResponse.statusText}`);
-    }
-
-    const submitResult = await submitResponse.json();
+    const { data: submitResult } = await axios.post(
+      'https://api.firecrawl.dev/v2/batch/scrape',
+      { urls: [url], formats: ['branding', 'markdown'] },
+      { headers },
+    );
 
     if (!submitResult.success || !submitResult.id) {
       throw new Error(`Firecrawl job submission failed: ${JSON.stringify(submitResult)}`);
@@ -52,15 +46,10 @@ export class WebsiteAnalyzer {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
 
-      const pollResponse = await fetch(`https://api.firecrawl.dev/v2/batch/scrape/${jobId}`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` },
-      });
-
-      if (!pollResponse.ok) {
-        throw new Error(`Firecrawl poll error: ${pollResponse.status} ${pollResponse.statusText}`);
-      }
-
-      const pollResult = await pollResponse.json();
+      const { data: pollResult } = await axios.get(
+        `https://api.firecrawl.dev/v2/batch/scrape/${jobId}`,
+        { headers },
+      );
 
       if (pollResult.status === 'failed') {
         throw new Error(`Firecrawl job failed: ${JSON.stringify(pollResult)}`);

@@ -20,7 +20,7 @@ export class WebsiteAnalyzer {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
       logger.warn(`[FIRECRAWL] Fetching branding data for: ${url}`);
@@ -78,7 +78,7 @@ export class WebsiteAnalyzer {
       clearTimeout(timeoutId);
 
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('Firecrawl request timed out after 30 seconds');
+        throw new Error('Firecrawl request timed out after 60 seconds');
       }
 
       throw error;

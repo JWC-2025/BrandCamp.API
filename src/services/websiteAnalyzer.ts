@@ -19,69 +19,83 @@ export class WebsiteAnalyzer {
       throw new Error('FIRECRAWL_API_KEY is not configured');
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    logger.warn(`[FIRECRAWL] Submitting async scrape job for: ${url}`);
 
-    try {
-      logger.warn(`[FIRECRAWL] Fetching branding data for: ${url}`);
+    const submitResponse = await fetch('https://api.firecrawl.dev/v2/batch/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        urls: [url],
+        formats: ['branding', 'markdown'],
+      }),
+    });
 
-      const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url,
-          formats: ['branding', 'markdown'],
-        }),
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`Firecrawl API error: ${response.status} ${response.statusText}`);
-      }
-
-      const result = await response.json();
-
-      if (!result.success || !result.data) {
-        throw new Error(`Firecrawl returned unsuccessful response: ${JSON.stringify(result)}`);
-      }
-
-      const { branding, markdown, metadata } = result.data;
-
-      logger.warn(`[FIRECRAWL] Successfully retrieved branding data for: ${url}`, {
-        hasColors: !!branding?.colors,
-        hasFonts: !!branding?.fonts,
-        hasPersonality: !!branding?.personality,
-        markdownLength: markdown?.length || 0,
-      });
-
-      return {
-        url,
-        html: markdown || '',
-        branding: branding as BrandingProfile,
-        metadata: {
-          title: metadata?.title || '',
-          description: metadata?.description || '',
-          keywords: metadata?.keywords ? metadata.keywords.split(',').map((k: string) => k.trim()) : [],
-          h1Tags: [],
-          images: [],
-          links: [],
-          forms: 0,
-          loadTime: 0,
-        },
-      };
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('Firecrawl request timed out after 60 seconds');
-      }
-
-      throw error;
+    if (!submitResponse.ok) {
+      throw new Error(`Firecrawl API error: ${submitResponse.status} ${submitResponse.statusText}`);
     }
+
+    const submitResult = await submitResponse.json();
+
+    if (!submitResult.success || !submitResult.id) {
+      throw new Error(`Firecrawl job submission failed: ${JSON.stringify(submitResult)}`);
+    }
+
+    const jobId = submitResult.id;
+    logger.warn(`[FIRECRAWL] Job submitted, polling for results. Job ID: ${jobId}`);
+
+    const pollInterval = 5000;
+    const maxAttempts = 24; // 24 * 5s = 120 seconds max
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+      const pollResponse = await fetch(`https://api.firecrawl.dev/v2/batch/scrape/${jobId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+
+      if (!pollResponse.ok) {
+        throw new Error(`Firecrawl poll error: ${pollResponse.status} ${pollResponse.statusText}`);
+      }
+
+      const pollResult = await pollResponse.json();
+
+      if (pollResult.status === 'failed') {
+        throw new Error(`Firecrawl job failed: ${JSON.stringify(pollResult)}`);
+      }
+
+      if (pollResult.status === 'completed' && pollResult.data?.length > 0) {
+        const { branding, markdown, metadata } = pollResult.data[0];
+
+        logger.warn(`[FIRECRAWL] Successfully retrieved branding data for: ${url}`, {
+          hasColors: !!branding?.colors,
+          hasFonts: !!branding?.fonts,
+          hasPersonality: !!branding?.personality,
+          markdownLength: markdown?.length || 0,
+        });
+
+        return {
+          url,
+          html: markdown || '',
+          branding: branding as BrandingProfile,
+          metadata: {
+            title: metadata?.title || '',
+            description: metadata?.description || '',
+            keywords: metadata?.keywords ? metadata.keywords.split(',').map((k: string) => k.trim()) : [],
+            h1Tags: [],
+            images: [],
+            links: [],
+            forms: 0,
+            loadTime: 0,
+          },
+        };
+      }
+
+      logger.warn(`[FIRECRAWL] Job ${jobId} status: ${pollResult.status}, attempt ${attempt + 1}/${maxAttempts}`);
+    }
+
+    throw new Error('Firecrawl job timed out after 120 seconds of polling');
   }
 }

@@ -73,9 +73,18 @@ Please provide a comprehensive analysis considering:
 
 You will be provided with structured brand data extracted from the website, including colors, fonts, layout, and personality signals, as well as the page's markdown content for context.
 
+Score the specific evaluation task on a scale of 0–100 using these bands as a guide:
+- 0–25: Poor — critical gaps, little to no effectiveness
+- 26–50: Below average — significant weaknesses outweigh strengths
+- 51–70: Average — meets basic expectations but clear room for improvement
+- 71–85: Good — solid execution with minor gaps
+- 86–100: Excellent — best-in-class execution
+
+Most websites score between 40–75. Reserve 85+ for genuinely exceptional work and 25 or below for serious failures.
+
 Respond in the following JSON format with detailed, actionable insights:
 {
-  "score": 75,
+  "score": <integer 0-100 based on your assessment>,
   "insights": [
     "Primary visual identity insight with specific observations",
     "Brand personality insight based on design signals",
@@ -91,8 +100,6 @@ Respond in the following JSON format with detailed, actionable insights:
     "Strategic brand positioning recommendation"
   ]
 }
-
-The "score" field must be an integer from 0 to 100 reflecting overall quality for the evaluation task.
 
 Ensure all insights and recommendations are:
 - Grounded in the specific brand data and content provided

@@ -75,6 +75,7 @@ You will be provided with structured brand data extracted from the website, incl
 
 Respond in the following JSON format with detailed, actionable insights:
 {
+  "score": 75,
   "insights": [
     "Primary visual identity insight with specific observations",
     "Brand personality insight based on design signals",
@@ -90,6 +91,8 @@ Respond in the following JSON format with detailed, actionable insights:
     "Strategic brand positioning recommendation"
   ]
 }
+
+The "score" field must be an integer from 0 to 100 reflecting overall quality for the evaluation task.
 
 Ensure all insights and recommendations are:
 - Grounded in the specific brand data and content provided

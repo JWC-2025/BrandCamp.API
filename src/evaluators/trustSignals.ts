@@ -1,14 +1,13 @@
 import { WebsiteData } from '../types/audit';
 import { Evaluator, EvaluationResult } from '../types/evaluator';
-import { OpenAIService } from '../services/aiService';
-import { config } from '../config/environment';
+import { ClaudeService } from '../services/aiService';
 
 export class TrustSignalsEvaluator implements Evaluator {
   name = 'Trust Signals';
-  private aiService: OpenAIService;
+  private aiService: ClaudeService;
 
   constructor() {
-    this.aiService = new OpenAIService(config.ai.openaiApiKey)
+    this.aiService = new ClaudeService()
   }
 
   async evaluate(websiteData: WebsiteData): Promise<EvaluationResult> {

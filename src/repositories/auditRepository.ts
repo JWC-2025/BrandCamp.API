@@ -258,8 +258,8 @@ export class AuditRepository {
       updated_at: row.updated_at,
       completed_at: row.completed_at,
       error_message: row.error_message,
-      request_data: row.request_data,
-      result_data: row.result_data,
+      request_data: typeof row.request_data === 'string' ? JSON.parse(row.request_data) : row.request_data,
+      result_data: typeof row.result_data === 'string' ? JSON.parse(row.result_data) : row.result_data,
       score: row.score,
     };
   }

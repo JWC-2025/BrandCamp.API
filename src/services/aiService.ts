@@ -109,9 +109,14 @@ Ensure all insights and recommendations are:
 
 Make sure your response is valid JSON and nothing else.`;
 
+    const MAX_CONTENT_LENGTH = 50000;
+    const html = websiteData.html.length > MAX_CONTENT_LENGTH
+      ? websiteData.html.slice(0, MAX_CONTENT_LENGTH) + '\n\n[Content truncated for analysis]'
+      : websiteData.html;
+
     const brandingContent = websiteData.branding
-      ? `Brand Profile:\n${JSON.stringify(websiteData.branding, null, 2)}\n\nPage Content (Markdown):\n${websiteData.html}`
-      : `Page Content (Markdown):\n${websiteData.html}`;
+      ? `Brand Profile:\n${JSON.stringify(websiteData.branding, null, 2)}\n\nPage Content (Markdown):\n${html}`
+      : `Page Content (Markdown):\n${html}`;
 
     const taskPrompt = `EVALUATION TASK:
 ${specificPrompt}`;

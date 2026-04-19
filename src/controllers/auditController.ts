@@ -354,7 +354,7 @@ export const createBulkAudit = async (
       try {
         const auditRequest: AuditRequest = {
           url,
-          format: 'json',
+          format: 'csv',
           includeScreenshot: false
         };
 

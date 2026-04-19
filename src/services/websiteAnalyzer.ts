@@ -30,7 +30,7 @@ export class WebsiteAnalyzer {
     const { data: submitResult } = await axios.post(
       'https://api.firecrawl.dev/v2/batch/scrape',
       { urls: [url], formats: ['branding', 'markdown'] },
-      { headers },
+      { headers, timeout: 30000 },
     );
 
     if (!submitResult.success || !submitResult.id) {
@@ -48,7 +48,7 @@ export class WebsiteAnalyzer {
 
       const { data: pollResult } = await axios.get(
         `https://api.firecrawl.dev/v2/batch/scrape/${jobId}`,
-        { headers },
+        { headers, timeout: 15000 },
       );
 
       if (pollResult.status === 'failed') {

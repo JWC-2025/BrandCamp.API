@@ -17,38 +17,40 @@ export class ValuePropositionEvaluator implements Evaluator {
     const industryGuidance = getIndustryPrompt(industry, 'valueProposition');
     
     const enhancedPrompt = `
-Analyze the value proposition of the provided HTML content with industry-specific context.
+Evaluate the CLEAR VALUE PROPOSITION of this website (Category 1, weighted 15%).
 
-CORE VALUE PROPOSITION CRITERIA:
-1. Clarity of the main value proposition
-2. Uniqueness and differentiation from competitors  
-3. Relevance to target audience
-4. Prominence and placement on the page
-5. Supporting evidence and proof points
+A strong value proposition concisely communicates three things:
+1. What the company offers
+2. Who it's for
+3. Why it's better or different than alternatives — including direct competitors, indirect alternatives (DIY, workarounds), and the status quo
 
-ANALYSIS FOCUS AREAS:
-- How clearly the website communicates what they do
-- What makes them different/better than alternatives
-- Whether the value is immediately apparent to visitors
-- The strength of the headline and supporting copy
-- Overall messaging effectiveness
-- Industry-specific value communication standards
+SCORING CRITERIA — assess against these five traits:
+- Clarity: A first-time visitor can understand the offer in 5–8 seconds
+- Specificity: Describes a concrete offering and benefit, not vague generalities
+- Audience-aware: Speaks directly to the needs and desires of the target customer
+- Benefit-oriented: Focuses on the value delivered, not just features listed
+- Positioning-aware: Highlights what makes the brand different or better than alternatives
+
+QUESTIONS TO ANSWER WHEN SCORING:
+- Is there a headline or hero statement that clearly explains the offer?
+- Can I quickly tell who this is for and why it's valuable?
+- Is the message differentiated or just generic?
+- Would a visitor understand what the company does in under 10 seconds?
+- Is the value proposition reinforced by visuals and supporting copy?
+
+COMMON ISSUES TO IDENTIFY:
+- Generic jargon like "innovative solutions for modern businesses"
+- No mention of the audience or industry
+- Benefits implied but never stated explicitly
+- Value prop buried below the fold
+- Nothing that distinguishes them from competitors
 
 ${industryGuidance ? `
-INDUSTRY-SPECIFIC CONSIDERATIONS (${industry}):
+INDUSTRY-SPECIFIC CONTEXT (${industry}):
 ${industryGuidance}
-
-Apply these industry standards when evaluating the value proposition.
 ` : ''}
 
-DETAILED EVALUATION REQUIREMENTS:
-- Assess value proposition against industry benchmarks
-- Consider target audience expectations for this business type
-- Evaluate competitive differentiation within the industry context
-- Analyze messaging hierarchy and information architecture
-- Review proof points and credibility indicators specific to this industry
-
-Rate the value proposition strength on a scale of 0-100, considering both general best practices and industry-specific requirements.
+Rate the value proposition strength on a scale of 0–100. Cite specific headline copy, hero sections, or messaging you observed.
     `;
 
     // Use screenshot analysis if available and using QueuedClaude

@@ -62,18 +62,25 @@ export abstract class AIService {
     websiteData: WebsiteData,
     specificPrompt: string
   ): { systemPrompt: string; htmlContent: string; taskPrompt: string } {
-    const systemPrompt = `You are an expert brand strategist and marketing analyst evaluating a website's visual identity and brand presence.
+    const systemPrompt = `You are an expert digital marketing strategist and brand analyst evaluating a website's marketing effectiveness and strategic communication performance.
 
-Please provide a comprehensive analysis considering:
-1. Visual design quality — color palette, typography, spacing, and overall aesthetic coherence
-2. Brand personality and tone — how the design communicates the brand's character and values
-3. Target audience alignment — whether the visual identity resonates with the intended audience
-4. Content quality and messaging effectiveness
-5. Industry-specific best practices and competitive positioning
+Your role is to assess how well the site supports the company's marketing, growth, and strategic communication goals — identifying performance gaps and demonstrating clear opportunities for improvement.
 
-You will be provided with structured brand data extracted from the website, including colors, fonts, layout, and personality signals, as well as the page's markdown content for context.
+You evaluate websites using a qualitative scoring framework focused on 10 dimensions:
+1. Clear Value Proposition — does the site immediately communicate what's offered, who it's for, and why it's better than alternatives?
+2. Features & Benefits — does the site translate features (what it does) into benefits (how it helps the customer)?
+3. CTAs Present — are there clear, compelling calls-to-action including both high-commitment (demo, trial) and low-friction (newsletter, download) options?
+4. Navigation & Information Architecture — is the site logically structured and easy to explore?
+5. Content-Market Fit — does the content reflect current buyer concerns, market trends, and pain points?
+6. Content Strategy — is content used intentionally to drive reach, nurture, and conversion across funnel stages?
+7. Brand Tone Consistency — is the voice and tone unified, distinctive, and aligned with the target audience?
+8. Trust Signals — are there credible proof elements like logos, testimonials, case studies, awards, and team transparency?
+9. Audience Clarity — is it obvious who the product or service is for, and does messaging speak to their specific goals and pain points?
+10. Differentiation — does the site clearly communicate what makes this company meaningfully different from competitors or alternatives?
 
-Score the specific evaluation task on a scale of 0–100 using these bands as a guide:
+You will be provided with website content (HTML/markdown) and brand data. Evaluate the specific dimension requested in the task prompt.
+
+Score the specific evaluation task on a scale of 0–100 using these bands:
 - 0–25: Poor — critical gaps, little to no effectiveness
 - 26–50: Below average — significant weaknesses outweigh strengths
 - 51–70: Average — meets basic expectations but clear room for improvement
@@ -86,26 +93,26 @@ Respond in the following JSON format with detailed, actionable insights:
 {
   "score": <integer 0-100 based on your assessment>,
   "insights": [
-    "Primary visual identity insight with specific observations",
-    "Brand personality insight based on design signals",
-    "Typography and color usage insight",
-    "Content and messaging insight",
-    "Audience alignment insight"
+    "Specific observation grounded in the website content",
+    "Second insight with concrete evidence from the site",
+    "Third insight identifying a strength or gap",
+    "Fourth insight on messaging or audience alignment",
+    "Fifth insight on competitive or strategic positioning"
   ],
   "recommendations": [
-    "High-priority visual improvement with implementation approach",
-    "Brand consistency recommendation",
-    "Typography or color refinement suggestion",
-    "Content or messaging improvement",
-    "Strategic brand positioning recommendation"
+    "High-priority improvement with specific implementation guidance",
+    "Second recommendation addressing a key gap",
+    "Third recommendation for strategic enhancement",
+    "Fourth recommendation for messaging or content improvement",
+    "Fifth recommendation for competitive differentiation"
   ]
 }
 
 Ensure all insights and recommendations are:
-- Grounded in the specific brand data and content provided
+- Grounded in the specific content and data provided — cite what you actually see
 - Specific and actionable with clear implementation steps
-- Contextually relevant to the industry and brand type identified
-- Prioritized by potential impact
+- Contextually relevant to the company's industry and audience
+- Prioritized by potential marketing and growth impact
 
 Make sure your response is valid JSON and nothing else.`;
 

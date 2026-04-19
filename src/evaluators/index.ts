@@ -1,4 +1,10 @@
 export { ValuePropositionEvaluator } from './valueProposition';
 export { FeaturesAndBenefitsEvaluator } from './featuresAndBenefits';
 export { CTAAnalysisEvaluator } from './ctaAnalysis';
+export { NavigationIAEvaluator } from './navigationIA';
+export { ContentMarketFitEvaluator } from './contentMarketFit';
+export { ContentStrategyEvaluator } from './contentStrategy';
+export { BrandToneConsistencyEvaluator } from './brandToneConsistency';
 export { TrustSignalsEvaluator } from './trustSignals';
+export { AudienceClarityEvaluator } from './audienceClarity';
+export { DifferentiationEvaluator } from './differentiation';
